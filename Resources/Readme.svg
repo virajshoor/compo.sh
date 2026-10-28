@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="title desc">
+<title id="title">Give every window its place.</title>
+<desc id="desc">Layout illustration of a wide browser next to a tall terminal, on a soft sage desktop.</desc>
+<rect width="1200" height="600" rx="20" fill="#c9d6c4"/>
+<path d="M20 0h1160a20 20 0 0 1 20 20v32H0V20A20 20 0 0 1 20 0" fill="#d9e3d3"/>
+<g font-family="Helvetica,Arial,sans-serif" fill="#17271e"><text x="30" y="33" font-size="18" font-weight="600">compo.sh</text><text x="1170" y="32" text-anchor="end" font-size="12" letter-spacing="2">LAYOUT ILLUSTRATION</text></g>
+<rect x="30" y="80" width="682" height="430" rx="10" fill="#fbfaf3" stroke="#9aa995"/>
+<path d="M30 126h682" stroke="#d0d6ca"/>
+<g fill="#9aa595"><circle cx="51" cy="104" r="3"/><circle cx="64" cy="104" r="3"/><circle cx="77" cy="104" r="3"/></g>
+<g font-family="Helvetica,Arial,sans-serif" fill="#57684d"><text x="370" y="109" text-anchor="middle" font-size="13">Browser</text><text x="64" y="178" font-size="11" letter-spacing="2">ROOM TO THINK</text></g>
+<g font-family="Georgia,serif" font-size="63" letter-spacing="-3"><text x="64" y="263" fill="#17271e">Good things</text><text x="64" y="332" fill="#17271e">need <tspan fill="#387a50" font-style="italic">space.</tspan></text></g>
+<path d="M64 414h614" stroke="#b5c0ab"/>
+<g font-family="monospace" font-size="10" letter-spacing="1" fill="#57684d"><text x="64" y="442">LESS ARRANGING</text><text x="678" y="442" text-anchor="end">MORE DOING ↗</text></g>
+<rect x="730" y="80" width="440" height="430" rx="10" fill="#18291f"/>
+<path d="M730 126h440" stroke="#405541"/>
+<g fill="#80917c"><circle cx="751" cy="104" r="3"/><circle cx="764" cy="104" r="3"/><circle cx="777" cy="104" r="3"/></g>
+<text x="950" y="109" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="13" fill="#a2b59a">Terminal</text>
+<g font-family="monospace" font-size="17"><text x="762" y="180" fill="#a2b59a">~/your-next-thing</text><text x="762" y="222" fill="#dbebd3"><tspan fill="#8fefb8">❯</tspan> make room</text><text x="762" y="280" fill="#a2b59a">Arranging possibilities…</text><g fill="#dbebd3"><text x="762" y="330"><tspan fill="#8fefb8">✓</tspan> browser: wide</text><text x="762" y="365"><tspan fill="#8fefb8">✓</tspan> terminal: tall</text><text x="762" y="400"><tspan fill="#8fefb8">✓</tspan> focus: yours</text></g></g>
+<rect x="762" y="431" width="9" height="19" fill="#8fefb8"/>
+<text x="30" y="559" font-family="Georgia,serif" font-size="26" fill="#17271e">Give every window its place.</text>
+<text x="1170" y="557" text-anchor="end" font-family="monospace" font-size="11" letter-spacing="1" fill="#57684d">NATIVE MACOS WINDOW MANAGER</text>
+</svg>

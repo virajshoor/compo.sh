@@ -1,0 +1,12 @@
+.build/
+.swiftpm/
+dist/
+website/
+scripts/Social.swift
+.DS_Store
+.env
+.env.*
+*.p12
+*.pfx
+*.pem
+*.key
