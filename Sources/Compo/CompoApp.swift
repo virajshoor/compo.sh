@@ -210,7 +210,7 @@ struct ControlPanel: View {
                 Text("Preview halves, quarters and fill while dragging. While tiling is active, macOS edge tiling is disabled. Your previous macOS settings return when this is off, tiling is paused, or compo.sh quits.")
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Toggle("Drag to Swap", isOn: $manager.dragSwap)
-                Toggle("Animate Window Swaps", isOn: $manager.animate)
+                Toggle("Disable All Animations", isOn: $manager.disableAnimations)
                 if manager.snapEdges {
                     HStack {
                         Text("Edge Reach")

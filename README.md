@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** Developer ID signed; Apple notarization accepted. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** The published 0.2.0 release is Developer ID signed and Apple notarized. The 0.2.1 repository bundle is Developer ID signed; notarization is pending. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -27,7 +27,7 @@ Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No accou
 | **App-aware layouts.** Browser + terminal gets a 60/40 split. Browser + document gets equal tall panes. Two browsers get wide rows. | **Simple controls.** Pick Stack, Columns, or Rows; adjust gaps and main pane width. |
 | **Layouts that fit.** Narrow companion columns become a balanced grid. Wider displays keep tall companion panes when space allows. | **Per-app rules.** Override app roles or keep an app floating with a small JSON file. |
 | **Preview, then place.** Drag to edges or corners for a foreground snap preview. Drag over another managed window to swap. | **Keyboard control.** Focus, swap, float, zoom, pause, and retile without reaching for the mouse. |
-| **Quiet by design.** Window events drive tiling. Edge snaps are instant; swap/replace transitions respect Reduce Motion. No continuous window polling. | **Silent startup.** Optional launch at login starts in the menu bar. Preferences survive updates with the same app identity. |
+| **Quiet by design.** Window events drive tiling. Window placement is instant by default, with visible drag previews. No continuous window polling. | **Silent startup.** Optional launch at login starts in the menu bar. Preferences survive updates with the same app identity. |
 
 ## Get started
 
@@ -75,7 +75,7 @@ Rules live at `~/Library/Application Support/compo/config.json`. Use exact bundl
 
 ## Native, with boundaries
 
-**0.2.1:** edge and corner snaps place windows instantly, and snap previews appear without panel animations. Swap/replace animations remain available under **Animate Window Swaps**, including keyboard swaps. Existing animation preferences carry over.
+**0.2.1:** **Disable All Animations** is on by default, including after upgrading. Edge snaps, drag-to-swap, and keyboard swaps place windows instantly; drag overlays remain visible without appearance animations. Turn this option off to restore swap/replace transitions, which respect Reduce Motion. Edge snaps stay instant. This preference persists and controls compo.sh window placement; macOS still controls its own Spaces and Mission Control transitions.
 
 compo.sh arranges existing windows through Accessibility. macOS still handles rendering, fullscreen, Mission Control, and Spaces. This is a window manager, not a replacement compositor.
 
@@ -98,6 +98,8 @@ bash scripts/build.sh
 ```
 
 Output: `dist/compo.sh.app`, universal for Apple silicon and Intel. The script builds and packages only; it never installs, launches, or enables login startup. Its default signature is ad hoc. Put the app in its permanent location before granting Accessibility access.
+
+The current signed app bundle is also checked into [`dist/compo.sh.app`](dist/compo.sh.app). Until its notarization is complete, use the published release for the notarized download.
 
 For your own Developer ID signature:
 

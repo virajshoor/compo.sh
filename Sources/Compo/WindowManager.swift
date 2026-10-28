@@ -30,8 +30,8 @@ final class WindowManager: ObservableObject {
     @Published var dragSwap = UserDefaults.standard.object(forKey: "dragSwap") as? Bool ?? true {
         didSet { UserDefaults.standard.set(dragSwap, forKey: "dragSwap") }
     }
-    @Published var animate = UserDefaults.standard.object(forKey: "animate") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(animate, forKey: "animate") }
+    @Published var disableAnimations = UserDefaults.standard.object(forKey: "disableAnimations") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(disableAnimations, forKey: "disableAnimations") }
     }
     @Published var edgeDistance = UserDefaults.standard.object(forKey: "edgeDistance") as? Double ?? 24 {
         didSet { UserDefaults.standard.set(edgeDistance, forKey: "edgeDistance") }
@@ -437,7 +437,7 @@ final class WindowManager: ObservableObject {
         let starts = targets.map { AX.frame($0.0) ?? $0.1 }
         let moving = targets.enumerated().filter { starts[$0.offset] != $0.element.1 }
         guard !moving.isEmpty else { schedule(); return }
-        guard animated, animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+        guard animated, !disableAnimations, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             for (_, target) in moving { _ = AX.setFrame(target.0, target.1) }
             schedule(); return
         }
