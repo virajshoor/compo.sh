@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** The published 0.2.0 release is Developer ID signed and Apple notarized. The 0.2.1 repository bundle is Developer ID signed; notarization is pending. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** Version 0.2.1 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -99,7 +99,7 @@ bash scripts/build.sh
 
 Output: `dist/compo.sh.app`, universal for Apple silicon and Intel. The script builds and packages only; it never installs, launches, or enables login startup. Its default signature is ad hoc. Put the app in its permanent location before granting Accessibility access.
 
-The current signed app bundle is also checked into [`dist/compo.sh.app`](dist/compo.sh.app). Until its notarization is complete, use the published release for the notarized download.
+The current signed, notarized app bundle is also checked into [`dist/compo.sh.app`](dist/compo.sh.app), with its notarization ticket stapled. The release ZIP contains the same bundle.
 
 For your own Developer ID signature:
 
