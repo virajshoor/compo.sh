@@ -27,7 +27,7 @@ Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No accou
 | **App-aware layouts.** Browser + terminal gets a 60/40 split. Browser + document gets equal tall panes. Two browsers get wide rows. | **Simple controls.** Pick Stack, Columns, or Rows; adjust gaps and main pane width. |
 | **Layouts that fit.** Narrow companion columns become a balanced grid. Wider displays keep tall companion panes when space allows. | **Per-app rules.** Override app roles or keep an app floating with a small JSON file. |
 | **Preview, then place.** Drag to edges or corners for a foreground snap preview. Drag over another managed window to swap. | **Keyboard control.** Focus, swap, float, zoom, pause, and retile without reaching for the mouse. |
-| **Quiet by design.** Window events drive tiling. No continuous window polling. Motion respects Reduce Motion. | **Silent startup.** Optional launch at login starts in the menu bar. Preferences survive updates with the same app identity. |
+| **Quiet by design.** Window events drive tiling. Edge snaps are instant; swap/replace transitions respect Reduce Motion. No continuous window polling. | **Silent startup.** Optional launch at login starts in the menu bar. Preferences survive updates with the same app identity. |
 
 ## Get started
 
@@ -74,6 +74,8 @@ Choose **Edit App Rules**, edit the file, then **Reload App Rules**. Invalid JSO
 Rules live at `~/Library/Application Support/compo/config.json`. Use exact bundle identifiers. Allowed roles: `browser`, `terminal`, `document`, `other`. File limit: 256 KB.
 
 ## Native, with boundaries
+
+**0.2.1:** edge and corner snaps place windows instantly, and snap previews appear without panel animations. Swap/replace animations remain available under **Animate Window Swaps**, including keyboard swaps. Existing animation preferences carry over.
 
 compo.sh arranges existing windows through Accessibility. macOS still handles rendering, fullscreen, Mission Control, and Spaces. This is a window manager, not a replacement compositor.
 

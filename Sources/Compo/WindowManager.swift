@@ -426,18 +426,18 @@ final class WindowManager: ObservableObject {
                     manualFrames = original.map { element, frame in
                         (element, targets.first { CFEqual($0.0, element) }?.1 ?? frame)
                     }
-                    move(targets)
+                    move(targets, animated: swapping)
                 } else { schedule() }
             }
         }
     }
 
-    private func move(_ targets: [(AXUIElement, CGRect)]) {
+    private func move(_ targets: [(AXUIElement, CGRect)], animated: Bool = true) {
         animation?.invalidate(); animation = nil
         let starts = targets.map { AX.frame($0.0) ?? $0.1 }
         let moving = targets.enumerated().filter { starts[$0.offset] != $0.element.1 }
         guard !moving.isEmpty else { schedule(); return }
-        guard animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+        guard animated, animate, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             for (_, target) in moving { _ = AX.setFrame(target.0, target.1) }
             schedule(); return
         }
