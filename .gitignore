@@ -1,7 +1,6 @@
 .build/
 .swiftpm/
 dist/
-website/
 scripts/Social.swift
 .DS_Store
 .env

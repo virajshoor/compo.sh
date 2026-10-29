@@ -19,4 +19,18 @@ final class WindowDragTests: XCTestCase {
         XCTAssertTrue(WindowDrag.isMove(original: original, current: moved,
             pointerStart: start, pointer: end, hasDragged: true))
     }
+    func testAppRestorationDuringContentDragCannotSnapOrFill() {
+        let original = CGRect(x: 0, y: 100, width: 600, height: 800)
+        XCTAssertFalse(WindowDrag.isMove(original: original, current: original.offsetBy(dx: 400, dy: -100),
+            pointerStart: CGPoint(x: 200, y: 100), pointer: CGPoint(x: 210, y: 5), hasDragged: true))
+        XCTAssertFalse(WindowDrag.isMove(original: original, current: original.offsetBy(dx: -100, dy: 0),
+            pointerStart: CGPoint(x: 200, y: 100), pointer: CGPoint(x: 300, y: 100), hasDragged: true))
+    }
+
+    func testRealMoveToleratesSmallEdgeClamp() {
+        let original = CGRect(x: 0, y: 100, width: 600, height: 800)
+        XCTAssertTrue(WindowDrag.isMove(original: original, current: original.offsetBy(dx: 100, dy: -80),
+            pointerStart: CGPoint(x: 200, y: 100), pointer: CGPoint(x: 300, y: 5), hasDragged: true))
+    }
+
 }

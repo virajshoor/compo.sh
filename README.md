@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** Version 0.3.0 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** Version 0.3.1 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -27,7 +27,13 @@ Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No accou
 | **App-aware layouts.** Browser + terminal gets a 60/40 split. Browser + document gets equal tall panes. Two browsers get wide rows. | **Simple controls.** Pick Stack, Columns, or Rows; adjust gaps and main pane width. |
 | **Layouts that fit.** Narrow companion columns become a balanced grid. Wider displays keep tall companion panes when space allows. | **Per-app rules.** Override app roles or keep an app floating with a small JSON file. |
 | **Preview, then place.** Drag to edges or corners for a foreground snap preview. Drag over another managed window to swap. | **Keyboard control.** Focus, swap, float, zoom, pause, and retile without reaching for the mouse. |
-| **Quiet by design.** Window events drive tiling. Window placement is instant by default, with visible drag previews. No continuous window polling. | **Silent startup.** Optional launch at login starts in the menu bar. Preferences survive updates with the same app identity. |
+| **Quiet by design.** Window events drive tiling. Window placement is instant by default, with visible drag previews. Bounded discovery retries after launch or activation; no idle window polling. | **Silent startup.** Optional launch at login starts in the menu bar. Preferences survive updates with the same app identity. |
+
+## Fixed in 0.3.1
+
+- Apps opened through Siri, Spotlight or another launcher receive event-triggered discovery retries while their windows and Accessibility become ready: every 250 ms initially, then every second, for up to 60 seconds after an event. Normal idle operation does not poll windows.
+- Accessibility observer registration uses a short timeout and retries transient failures. Background apps without on-screen windows no longer receive full window scans.
+- Snap/fill requires window movement to follow the pointer; unrelated app-restored movement during a content drag cannot trigger it. Windows entering native fullscreen or minimization are checked again before placement.
 
 ## New in 0.3.0
 
@@ -112,6 +118,8 @@ Rules live at `~/Library/Application Support/compo/config.json`. Use exact bundl
 
 ## Native, with boundaries
 
+**0.3.1:** fixes launch-time discovery gaps, retries Accessibility subscriptions, avoids off-screen app scans, and rejects unrelated window movement as snap/fill intent.
+
 **0.3.0:** adds one-step arrangement undo, saved workspaces, editable shortcuts with duplicate/system conflict checks, local diagnostic export and an optional desktop indicator. Settled overlapping windows receive one recovery attempt per arrangement. Persistent refusal stops placement attempts and shows guidance; impossible minimum-size layouts report why they cannot fit. Instant desktop switching remains unchanged.
 
 **0.2.6:** desktop shortcuts accept one action per press and rearm on release. Holding an arrow no longer repeats through every desktop. Keep modifiers held and tap either arrow repeatedly or alternate directions; quick taps queue in order instead of being discarded during Dock’s commit interval. Window focus and swap shortcuts retain their existing repeat behavior.
@@ -166,7 +174,7 @@ swiftc Sources/Compo/LaunchBehavior.swift Tests/LaunchBehaviorCheck.swift -o /tm
 /tmp/compo-launch-check
 ```
 
-54 Swift tests cover arrangement snapshots, workspace validation and display remapping, shortcut validation, bounded diagnostics, settled overlap recovery, layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, simulated activation recovery, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, gesture encoding, shortcut hold/release behavior, rapid alternating desktop taps, and delayed queue dispatch. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
+58 Swift tests cover arrangement snapshots, workspace validation and display remapping, shortcut validation, bounded diagnostics, settled overlap recovery, layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, slow launch retry bounds, simulated activation recovery, unrelated restoration during content drags, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, gesture encoding, shortcut hold/release behavior, rapid alternating desktop taps, and delayed queue dispatch. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
 
 ### Around the source
 

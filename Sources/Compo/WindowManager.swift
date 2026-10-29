@@ -63,6 +63,9 @@ final class WindowManager: ObservableObject {
     private var windows: [ManagedWindow] = []
     private var floating: [AXUIElement] = []
     private var observers: [pid_t: AXObserver] = [:]
+    private var subscriptions: [pid_t: Set<String>] = [:]
+    private var discoveryRetry = DiscoveryRetry()
+    private var discoveryWork: DispatchWorkItem?
     private var workspaceTokens: [NSObjectProtocol] = []
     private var screenToken: NSObjectProtocol?
     private var permissionTimer: Timer?
@@ -116,13 +119,14 @@ final class WindowManager: ObservableObject {
                     }
                 }
                 self?.resetPlacement()
+                self?.beginDiscovery()
                 self?.schedule()
             })
         }
         screenToken = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                              object: nil, queue: .main) { [weak self] _ in self?.resetPlacement(); self?.schedule() }
         workspaceTokens.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
-                                                  object: nil, queue: .main) { [weak self] _ in self?.schedule() })
+                                                  object: nil, queue: .main) { [weak self] _ in self?.beginDiscovery(); self?.schedule() })
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self else { return }
             let allowed = AXIsProcessTrusted()
@@ -138,6 +142,7 @@ final class WindowManager: ObservableObject {
             }
         }
         if let error = hotkeys?.error { message = error }
+        beginDiscovery()
         schedule()
     }
 
@@ -148,13 +153,14 @@ final class WindowManager: ObservableObject {
         _ = nativeTiling.takeOver(false)
         pending?.cancel()
         verification?.cancel()
+        discoveryWork?.cancel(); discoveryWork = nil
         permissionTimer?.invalidate()
         workspaceTokens.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         if let screenToken { NotificationCenter.default.removeObserver(screenToken) }
         for observer in observers.values {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
         }
-        observers.removeAll()
+        observers.removeAll(); subscriptions.removeAll()
         hotkeys = nil
     }
 
@@ -194,24 +200,50 @@ final class WindowManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
     }
 
+    // Launch/activation can precede AX readiness. Retry only during a bounded discovery burst.
+    private func beginDiscovery() {
+        discoveryRetry.begin(at: ProcessInfo.processInfo.systemUptime)
+        continueDiscovery()
+    }
+
+    private func continueDiscovery() {
+        guard discoveryWork == nil,
+              let delay = discoveryRetry.nextDelay(at: ProcessInfo.processInfo.systemUptime) else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.discoveryWork = nil
+            self.schedule(recover: false)
+            self.continueDiscovery()
+        }
+        discoveryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
     private func observe(_ app: NSRunningApplication) {
         let pid = app.processIdentifier
-        guard observers[pid] == nil else { return }
-        var observer: AXObserver?
-        let callback: AXObserverCallback = { _, element, name, context in
-            guard let context else { return }
-            let manager = Unmanaged<WindowManager>.fromOpaque(context).takeUnretainedValue()
-            manager.windowEvent(element, name: name as String)
+        if observers[pid] == nil {
+            var observer: AXObserver?
+            let callback: AXObserverCallback = { _, element, name, context in
+                guard let context else { return }
+                let manager = Unmanaged<WindowManager>.fromOpaque(context).takeUnretainedValue()
+                manager.windowEvent(element, name: name as String)
+            }
+            guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return }
+            observers[pid] = observer
+            CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
         }
-        guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return }
-        observers[pid] = observer
-        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        guard let observer = observers[pid] else { return }
         let element = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(element, 0.15)
         let context = Unmanaged.passUnretained(self).toOpaque()
         for name in [kAXWindowCreatedNotification, kAXUIElementDestroyedNotification,
                      kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification,
-                     kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification] {
-            AXObserverAddNotification(observer, element, name as CFString, context)
+                     kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification]
+            where subscriptions[pid]?.contains(name) != true {
+            let result = AXObserverAddNotification(observer, element, name as CFString, context)
+            if result == .success || result == .notificationAlreadyRegistered || result == .notificationUnsupported {
+                subscriptions[pid, default: []].insert(name)
+            }
         }
     }
 
@@ -226,7 +258,7 @@ final class WindowManager: ObservableObject {
             let recentWrite = Date().timeIntervalSince(lastPlacement) < 1
             guard !recentWrite || recoveryBudget > 0 else { return }
             schedule(recover: !recentWrite)
-        } else { schedule() }
+        } else { beginDiscovery(); schedule() }
     }
 
     private func verifyPlacement() {
@@ -249,6 +281,7 @@ final class WindowManager: ObservableObject {
         let livePids = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
         appRoles = appRoles.filter { livePids.contains($0.key) }
         for pid in Array(observers.keys) where !livePids.contains(pid) {
+            subscriptions.removeValue(forKey: pid)
             if let observer = observers.removeValue(forKey: pid) {
                 CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
             }
@@ -259,6 +292,7 @@ final class WindowManager: ObservableObject {
             as? [[String: Any]] else { verifyPlacement(); return }
         var discovered: [ManagedWindow] = []
         var allElements: [AXUIElement] = []
+        var sampledPids = Set<pid_t>()
         ruleFloats = []
         for app in apps {
             let pid = app.processIdentifier
@@ -273,6 +307,8 @@ final class WindowManager: ObservableObject {
                       let bounds = info[kCGWindowBounds as String] as? [String: Any] else { return nil }
                 return CGRect(dictionaryRepresentation: bounds as CFDictionary)
             }
+            if !visibleIDs.isEmpty || app.isActive { observe(app) }
+            guard !app.isHidden, !visibleIDs.isEmpty else { continue }
             if appRoles[pid] == nil {
                 let urlTypes = app.bundleURL.flatMap { Bundle(url: $0) }?
                     .object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
@@ -284,14 +320,13 @@ final class WindowManager: ObservableObject {
             let role = rule?.role ?? appRoles[pid] ?? .other
             let element = AXUIElementCreateApplication(app.processIdentifier)
             AXUIElementSetMessagingTimeout(element, 0.15)
-            observe(app)
-            guard let appWindows = AX.value(element, kAXWindowsAttribute) as? [AXUIElement] else {
+            guard let appWindows = AX.value(element, kAXWindowsAttribute) as? [AXUIElement], !appWindows.isEmpty else {
                 if !app.isHidden {
                     let retained = windows.filter { old in
                         old.pid == pid && WindowPlacement.visible(old.frame, previous: nil,
                             targets: requestedFrames.filter { CFEqual($0.0, old.element) }.map(\.1), among: visibleFrames, windowID: AX.windowID(old.element), visibleIDs: visibleIDs)
                     }
-                    // A transient AX timeout must not erase the entire application's layout state.
+                    // AX can briefly return nil or an empty list while visible windows initialize.
                     discovered += retained
                     allElements += retained.map(\.element)
                     if rule?.floating == true { ruleFloats += retained.map(\.element) }
@@ -299,6 +334,7 @@ final class WindowManager: ObservableObject {
                 verifyPlacement()
                 continue
             }
+            sampledPids.insert(pid)
             allElements += appWindows
             guard !app.isHidden else { continue }
             for window in appWindows {
@@ -349,7 +385,14 @@ final class WindowManager: ObservableObject {
                 discovered.append(ManagedWindow(element: window, pid: app.processIdentifier, role: role, frame: frame))
             }
         }
-        floating.removeAll { old in !allElements.contains { CFEqual($0, old) } }
+        // An app with no on-screen window is skipped; preserve its user state until it exits.
+        func isGone(_ element: AXUIElement) -> Bool {
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            return !livePids.contains(pid)
+                || (sampledPids.contains(pid) && !allElements.contains { CFEqual($0, element) })
+        }
+        floating.removeAll(where: isGone)
         sizeLimits.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
         requestedFrames.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
         resizeFeedback.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
@@ -650,6 +693,8 @@ final class WindowManager: ObservableObject {
     private func place(_ element: AXUIElement, at target: CGRect, remember: Bool = true) {
         applyingFrames = true
         defer { applyingFrames = false }
+        guard AX.value(element, "AXFullScreen") as? Bool != true,
+              AX.value(element, kAXMinimizedAttribute) as? Bool != true else { return }
         let before = AX.frame(element)
         if before.map({ !WindowPlacement.matches($0, target) }) ?? true { lastPlacement = Date() }
         let succeeded = AX.setFrame(element, target)

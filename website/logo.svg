@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>compo — windows in composition</title>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="#111b17"/>
+  <rect x="192" y="192" width="264" height="640" rx="48" fill="#8fefb8"/>
+  <rect x="512" y="192" width="320" height="292" rx="48" fill="#8fefb8"/>
+  <rect x="512" y="540" width="320" height="292" rx="48" fill="#497b5e"/>
+</svg>

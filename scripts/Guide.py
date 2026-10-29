@@ -19,12 +19,12 @@ def page(title):
 def footer(canvas, doc):
     canvas.setFillColor(HexColor("#f5f2e9")); canvas.rect(0,0,595.28,841.89,fill=1,stroke=0)
     canvas.setFillColor(HexColor("#597064")); canvas.setFont("Helvetica",9)
-    canvas.drawString(48,31,"compo.sh / User guide / 0.3.0 beta")
+    canvas.drawString(48,31,"compo.sh / User guide / 0.3.1 beta")
     canvas.drawRightString(547,31,str(doc.page))
 
 text("compo.sh", "TitleCustom")
 text("A little order.<br/>A lot of room.","TitleCustom")
-text("USER GUIDE / VERSION 0.3.0 BETA")
+text("USER GUIDE / VERSION 0.3.1 BETA")
 text("A native menu bar window manager for macOS 13 and later. Universal app for Apple Silicon and Intel.")
 text("Start here", "Section")
 text("1. Put compo.sh.app in Applications before granting permissions.<br/>2. Open it manually. Choose Allow Accessibility Access and enable compo.sh in System Settings.<br/>3. Close other window managers. Enable Automatic Tiling when ready.<br/>4. Click the tiled menu bar icon whenever you want the controls.")
