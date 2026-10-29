@@ -29,6 +29,19 @@ Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No accou
 | **Preview, then place.** Drag to edges or corners for a foreground snap preview. Drag over another managed window to swap. | **Keyboard control.** Focus, swap, float, zoom, pause, and retile without reaching for the mouse. |
 | **Quiet by design.** Window events drive tiling. Window placement is instant by default, with visible drag previews. No continuous window polling. | **Silent startup.** Optional launch at login starts in the menu bar. Preferences survive updates with the same app identity. |
 
+## New in 0.3.0
+
+| Feature | How it helps |
+| :--- | :--- |
+| **Overlap recovery** | Checks settled window positions and tries one constraint-aware refit per arrangement. If apps refuse placement or their minimum sizes cannot fit, controls explain what needs attention. |
+| **Undo arrangements** | Press `⌃⌥ Z` to restore the previous arrangement of surviving windows on the current desktop. |
+| **Saved workspaces** | Name and save your panes, then restore app placement, relative sizes and floating state. Missing apps launch; display identities help restore across monitor changes. Open documents first. |
+| **Editable shortcuts** | Choose **Edit Shortcuts…**, change the JSON bindings, then **Reload Shortcuts**. Invalid or conflicting bindings preserve the previous working configuration. |
+| **Private diagnostics** | **Export Diagnostics…** saves local geometry and recent placement events for troubleshooting, without window titles, document paths, content or screenshots. Nothing uploads automatically. |
+| **Desktop indicator** | Optional **Show Desktop Indicator** briefly shows the confirmed desktop number without taking focus or adding animation. |
+
+Instant desktop switching remains available with `⌃⌥⌘ ← / →` on macOS 26.6+. Keep modifiers held and tap either arrow repeatedly; holding an arrow triggers only one switch. No SIP changes or system-wide Reduce Motion changes.
+
 ## Get started
 
 1. [Download compo.sh](https://github.com/virajshoor/compo.sh/releases/latest/download/compo.sh-macOS.zip), unzip, and move **compo.sh.app** to **Applications**.
@@ -153,7 +166,7 @@ swiftc Sources/Compo/LaunchBehavior.swift Tests/LaunchBehaviorCheck.swift -o /tm
 /tmp/compo-launch-check
 ```
 
-46 Swift tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, simulated activation recovery, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, gesture encoding, shortcut hold/release behavior, rapid alternating desktop taps, and delayed queue dispatch. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
+54 Swift tests cover arrangement snapshots, workspace validation and display remapping, shortcut validation, bounded diagnostics, settled overlap recovery, layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, simulated activation recovery, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, gesture encoding, shortcut hold/release behavior, rapid alternating desktop taps, and delayed queue dispatch. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
 
 ### Around the source
 
