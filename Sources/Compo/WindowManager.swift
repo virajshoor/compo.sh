@@ -25,10 +25,10 @@ final class WindowManager: ObservableObject {
         didSet { UserDefaults.standard.set(ratio, forKey: "ratio"); resetPlacement(); schedule() }
     }
     @Published var snapEdges = UserDefaults.standard.object(forKey: "snapEdges") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(snapEdges, forKey: "snapEdges"); updateNativeTiling(); cancelDrag() }
+        didSet { UserDefaults.standard.set(snapEdges, forKey: "snapEdges"); updateNativeTiling(); cancelDrag(); schedule() }
     }
     @Published var dragSwap = UserDefaults.standard.object(forKey: "dragSwap") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(dragSwap, forKey: "dragSwap") }
+        didSet { UserDefaults.standard.set(dragSwap, forKey: "dragSwap"); cancelDrag(); schedule() }
     }
     @Published var disableAnimations = UserDefaults.standard.object(forKey: "disableAnimations") as? Bool ?? true {
         didSet { UserDefaults.standard.set(disableAnimations, forKey: "disableAnimations") }
@@ -49,6 +49,13 @@ final class WindowManager: ObservableObject {
     private var screenToken: NSObjectProtocol?
     private var permissionTimer: Timer?
     private var pending: DispatchWorkItem?
+    private var verification: DispatchWorkItem?
+    private var recoveryBudget = 3
+    private var applyingFrames = false
+    private var lastPlacement = Date.distantPast
+    private var sizeLimits: [(AXUIElement, CGSize)] = []
+    private var requestedFrames: [(AXUIElement, CGRect)] = []
+    private var missingSamples: [(AXUIElement, Int)] = []
     private var hotkeys: Hotkeys?
     private var zoomed: AXUIElement?
 
@@ -84,6 +91,8 @@ final class WindowManager: ObservableObject {
         }
         screenToken = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                              object: nil, queue: .main) { [weak self] _ in self?.resetPlacement(); self?.schedule() }
+        workspaceTokens.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                  object: nil, queue: .main) { [weak self] _ in self?.schedule() })
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self else { return }
             let allowed = AXIsProcessTrusted()
@@ -94,6 +103,9 @@ final class WindowManager: ObservableObject {
             }
             self.loginEnabled = SMAppService.mainApp.status == .enabled
             self.loginNeedsApproval = SMAppService.mainApp.status == .requiresApproval
+            if self.dragWindow != nil && NSEvent.pressedMouseButtons & 1 == 0 {
+                self.cancelDrag(); self.schedule()
+            }
         }
         if let error = hotkeys?.error { message = error }
         schedule()
@@ -104,6 +116,7 @@ final class WindowManager: ObservableObject {
         dragController?.stop()
         _ = nativeTiling.takeOver(false)
         pending?.cancel()
+        verification?.cancel()
         permissionTimer?.invalidate()
         workspaceTokens.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         if let screenToken { NotificationCenter.default.removeObserver(screenToken) }
@@ -139,9 +152,13 @@ final class WindowManager: ObservableObject {
         }
     }
 
-    func schedule() {
-        pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.refresh() }
+    func schedule(recover: Bool = true) {
+        if recover { recoveryBudget = 3 }
+        guard pending == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.pending = nil
+            self?.refresh()
+        }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
     }
@@ -150,10 +167,10 @@ final class WindowManager: ObservableObject {
         let pid = app.processIdentifier
         guard observers[pid] == nil else { return }
         var observer: AXObserver?
-        let callback: AXObserverCallback = { _, _, _, context in
+        let callback: AXObserverCallback = { _, element, name, context in
             guard let context else { return }
             let manager = Unmanaged<WindowManager>.fromOpaque(context).takeUnretainedValue()
-            manager.schedule()
+            manager.windowEvent(element, name: name as String)
         }
         guard AXObserverCreate(pid, callback, &observer) == .success, let observer else { return }
         observers[pid] = observer
@@ -161,9 +178,32 @@ final class WindowManager: ObservableObject {
         let element = AXUIElementCreateApplication(pid)
         let context = Unmanaged.passUnretained(self).toOpaque()
         for name in [kAXWindowCreatedNotification, kAXUIElementDestroyedNotification,
-                     kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification] {
+                     kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification,
+                     kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification] {
             AXObserverAddNotification(observer, element, name as CFString, context)
         }
+    }
+
+    private func windowEvent(_ element: AXUIElement, name: String) {
+        if name == kAXWindowMovedNotification || name == kAXWindowResizedNotification {
+            guard enabled, !applyingFrames, dragWindow == nil, animation == nil,
+                  let known = windows.first(where: { CFEqual($0.element, element) }), !isFloating(element),
+                  let frame = AX.frame(element), !WindowPlacement.matches(frame, known.frame) else { return }
+            let recentWrite = Date().timeIntervalSince(lastPlacement) < 1
+            guard !recentWrite || recoveryBudget > 0 else { return }
+            schedule(recover: !recentWrite)
+        } else { schedule() }
+    }
+
+    private func verifyPlacement() {
+        guard enabled, recoveryBudget > 0, verification == nil else { return }
+        recoveryBudget -= 1
+        let work = DispatchWorkItem { [weak self] in
+            self?.verification = nil
+            self?.schedule(recover: false)
+        }
+        verification = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
 
     private func refresh() {
@@ -181,13 +221,19 @@ final class WindowManager: ObservableObject {
         }
         // Public WindowServer metadata limits management to windows visible in the current Spaces.
         // No screen image capture or Screen Recording permission is used.
-        let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-            as? [[String: Any]] ?? []
+        guard let visible = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] else { verifyPlacement(); return }
         var discovered: [ManagedWindow] = []
         var allElements: [AXUIElement] = []
         ruleFloats = []
         for app in apps {
             let pid = app.processIdentifier
+            let visibleFrames = visible.compactMap { info -> CGRect? in
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+                      (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                      let bounds = info[kCGWindowBounds as String] as? [String: Any] else { return nil }
+                return CGRect(dictionaryRepresentation: bounds as CFDictionary)
+            }
             if appRoles[pid] == nil {
                 let urlTypes = app.bundleURL.flatMap { Bundle(url: $0) }?
                     .object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
@@ -200,7 +246,20 @@ final class WindowManager: ObservableObject {
             let element = AXUIElementCreateApplication(app.processIdentifier)
             AXUIElementSetMessagingTimeout(element, 0.15)
             observe(app)
-            guard let appWindows = AX.value(element, kAXWindowsAttribute) as? [AXUIElement] else { continue }
+            guard let appWindows = AX.value(element, kAXWindowsAttribute) as? [AXUIElement] else {
+                if !app.isHidden {
+                    let retained = windows.filter { old in
+                        old.pid == pid && WindowPlacement.visible(old.frame, previous: nil,
+                            targets: requestedFrames.filter { CFEqual($0.0, old.element) }.map(\.1), among: visibleFrames)
+                    }
+                    // A transient AX timeout must not erase the entire application's layout state.
+                    discovered += retained
+                    allElements += retained.map(\.element)
+                    if rule?.floating == true { ruleFloats += retained.map(\.element) }
+                }
+                verifyPlacement()
+                continue
+            }
             allElements += appWindows
             guard !app.isHidden else { continue }
             for window in appWindows {
@@ -208,21 +267,37 @@ final class WindowManager: ObservableObject {
                 guard AX.value(window, kAXSubroleAttribute) as? String == kAXStandardWindowSubrole,
                       AX.value(window, kAXMinimizedAttribute) as? Bool != true,
                       AX.value(window, "AXFullScreen") as? Bool != true,
-                      AX.writable(window, kAXPositionAttribute), AX.writable(window, kAXSizeAttribute),
-                      let frame = AX.frame(window), frame.width > 80, frame.height > 60 else { continue }
-                let onScreen = visible.contains { info in
-                    guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == app.processIdentifier,
-                          (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
-                          let bounds = info[kCGWindowBounds as String] as? [String: Any],
-                          let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return false }
-                    return abs(rect.minX - frame.minX) < 3 && abs(rect.minY - frame.minY) < 3
-                        && abs(rect.width - frame.width) < 3 && abs(rect.height - frame.height) < 3
+                      AX.writable(window, kAXPositionAttribute), AX.writable(window, kAXSizeAttribute) else { continue }
+                guard let frame = AX.frame(window), frame.width > 80, frame.height > 60 else {
+                    if let old = windows.first(where: { CFEqual($0.element, window) }),
+                       visibleFrames.contains(where: { WindowPlacement.matches($0, old.frame, tolerance: 3) }) {
+                        discovered.append(old)
+                        if rule?.floating == true { ruleFloats.append(window) }
+                        verifyPlacement()
+                    }
+                    continue
                 }
-                guard onScreen else { continue }
+                let old = windows.first { CFEqual($0.element, window) }
+                let targets = requestedFrames.filter { CFEqual($0.0, window) }.map(\.1)
+                // Read settled geometry, not an application's asynchronous resize response.
+                if Date().timeIntervalSince(lastPlacement) >= 0.2, let requested = targets.first {
+                    let previous = sizeLimits.first { CFEqual($0.0, window) }?.1 ?? .zero
+                    let minimum = WindowPlacement.minimumSize(requested: requested, actual: frame, previous: previous)
+                    sizeLimits.removeAll { CFEqual($0.0, window) }
+                    sizeLimits.append((window, minimum))
+                }
+                let onScreen = WindowPlacement.visible(frame, previous: old?.frame, targets: targets, among: visibleFrames)
+                if !onScreen {
+                    let misses = missingSamples.first { CFEqual($0.0, window) }?.1 ?? 0
+                    missingSamples.removeAll { CFEqual($0.0, window) }
+                    missingSamples.append((window, misses + 1))
+                    guard old != nil, misses < 2 else { continue }
+                    verifyPlacement()
+                } else { missingSamples.removeAll { CFEqual($0.0, window) } }
                 if let observer = observers[app.processIdentifier] {
                     let context = Unmanaged.passUnretained(self).toOpaque()
                     for name in [kAXUIElementDestroyedNotification, kAXWindowMiniaturizedNotification,
-                                 kAXWindowDeminiaturizedNotification] {
+                                 kAXWindowDeminiaturizedNotification, kAXWindowMovedNotification, kAXWindowResizedNotification] {
                         AXObserverAddNotification(observer, window, name as CFString, context)
                     }
                 }
@@ -231,6 +306,9 @@ final class WindowManager: ObservableObject {
             }
         }
         floating.removeAll { old in !allElements.contains { CFEqual($0, old) } }
+        sizeLimits.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
+        requestedFrames.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
+        missingSamples.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
         floatingCount = windows.filter { isFloating($0.element) }.count
         // Preserve user order through app launches, closes, and swaps.
         var ordered = windows.compactMap { old in discovered.first { CFEqual($0.element, old.element) } }
@@ -254,16 +332,12 @@ final class WindowManager: ObservableObject {
     }
 
     private func displayIndex(for frame: CGRect, in screens: [CGRect]) -> Int? {
-        screens.indices.max { a, b in
-            let first = screens[a].intersection(frame), second = screens[b].intersection(frame)
-            let areaA = first.isNull ? 0 : first.width * first.height
-            let areaB = second.isNull ? 0 : second.width * second.height
-            return areaA < areaB
-        }
+        WindowPlacement.displayIndex(for: frame, in: screens)
     }
 
-    private func tile() {
+    private func tile(animated: Bool = false) {
         let screens = displays
+        var targets: [(AXUIElement, CGRect)] = []
         for (index, screen) in screens.enumerated() {
             let group = windows.indices.filter { i in
                 !isFloating(windows[i].element)
@@ -273,15 +347,21 @@ final class WindowManager: ObservableObject {
                 ? AppAwareLayout.frames(roles: group.map { windows[$0].role }, in: screen,
                                         gap: gap, fallback: layout, ratio: ratio)
                 : layout.frames(count: group.count, in: screen, gap: gap, ratio: ratio)
-            for (i, target) in zip(group, frames) {
-                let frame = zoomed.map { CFEqual($0, windows[i].element) } == true
-                    ? screen.insetBy(dx: gap, dy: gap)
-                    : manualFrames.first { CFEqual($0.0, windows[i].element) }?.1 ?? target
-                _ = AX.setFrame(windows[i].element, frame)
-                // Read actual size: apps can impose minimum window dimensions.
-                windows[i].frame = AX.frame(windows[i].element) ?? windows[i].frame
+            if let zoomed, group.contains(where: { CFEqual(windows[$0].element, zoomed) }) {
+                targets.append((zoomed, screen.insetBy(dx: gap, dy: gap)))
+                continue
             }
+            let preferred = zip(group, frames).map { i, target in
+                manualFrames.first { CFEqual($0.0, windows[i].element) }?.1 ?? target
+            }
+            let minimums = group.map { i in sizeLimits.first { CFEqual($0.0, windows[i].element) }?.1 ?? .zero }
+            guard let fitted = FittingLayout.frames(preferred: preferred, minimums: minimums, in: screen, gap: gap) else {
+                message = "These windows cannot fit on this display at their minimum sizes. Float a window, close one, or use a larger display. Retile Now retries size limits."
+                continue
+            }
+            targets += zip(group, fitted).map { (windows[$0.0].element, $0.1) }
         }
+        move(targets, animated: animated)
     }
 
     func perform(_ action: HotkeyAction) {
@@ -319,7 +399,8 @@ final class WindowManager: ObservableObject {
                 manualFrames = manualFrames.map { element, frame in
                     (element, CFEqual(element, focused) ? frames[next] : CFEqual(element, other) ? frames[index] : frame)
                 }
-                move(manualFrames)
+                assignDisplays(manualFrames)
+                tile(animated: true)
                 AX.focus(focused)
             } else { AX.focus(windows[next].element) }
         default: break
@@ -348,6 +429,9 @@ final class WindowManager: ObservableObject {
     private func resetPlacement() {
         zoomed = nil
         manualFrames = []
+        sizeLimits = []; requestedFrames = []; missingSamples = []
+        verification?.cancel(); verification = nil
+        animation?.invalidate(); animation = nil
         cancelDrag()
     }
 
@@ -355,13 +439,13 @@ final class WindowManager: ObservableObject {
         dragWindow = nil
         hasDragged = false
         dragFrames = []; dropFrames = []
-        animation?.invalidate(); animation = nil
         dragController?.show(nil)
     }
 
     private func drag(_ type: NSEvent.EventType, point: CGPoint) {
-        guard enabled, trusted, snapEdges || dragSwap else { cancelDrag(); return }
+        guard enabled, trusted else { cancelDrag(); return }
         if type == .leftMouseDown {
+            guard animation == nil else { return }
             cancelDrag()
             var hit: AXUIElement?
             guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
@@ -377,9 +461,14 @@ final class WindowManager: ObservableObject {
             dragPointerStart = point
             dragFrames = windows.filter { !isFloating($0.element) }.map { ($0.element, AX.frame($0.element) ?? $0.frame) }
             pending?.cancel()
+            pending = nil
             return
         }
         guard let window = dragWindow else { return }
+        guard snapEdges || dragSwap else {
+            if type == .leftMouseUp { cancelDrag(); schedule() }
+            return
+        }
         if type == .leftMouseDragged || type == .leftMouseUp {
             if type == .leftMouseDragged { hasDragged = true }
             // One AX read per display frame at most; ignore content drags and live resizing.
@@ -400,12 +489,14 @@ final class WindowManager: ObservableObject {
             }
             var preview: CGRect?
             var swapping = false
+            var filling = false
             if snapEdges, let screen {
                 let full = CGRect(x: screen.frame.minX, y: top - screen.frame.maxY,
                                   width: screen.frame.width, height: screen.frame.height)
                 let visible = CGRect(x: screen.visibleFrame.minX, y: top - screen.visibleFrame.maxY,
                                      width: screen.visibleFrame.width, height: screen.visibleFrame.height)
                 if let zone = SnapZone.detect(point: point, screen: full, threshold: edgeDistance) {
+                    filling = zone == .top
                     let target = zone.frame(in: visible, gap: gap)
                     preview = target
                     dropFrames = [(window, target)]
@@ -431,7 +522,9 @@ final class WindowManager: ObservableObject {
                     manualFrames = original.map { element, frame in
                         (element, targets.first { CFEqual($0.0, element) }?.1 ?? frame)
                     }
-                    move(targets, animated: swapping)
+                    if filling { zoomed = window }
+                    assignDisplays(targets)
+                    tile(animated: swapping)
                 } else { schedule() }
             }
         }
@@ -440,11 +533,11 @@ final class WindowManager: ObservableObject {
     private func move(_ targets: [(AXUIElement, CGRect)], animated: Bool = true) {
         animation?.invalidate(); animation = nil
         let starts = targets.map { AX.frame($0.0) ?? $0.1 }
-        let moving = targets.enumerated().filter { starts[$0.offset] != $0.element.1 }
-        guard !moving.isEmpty else { schedule(); return }
+        let moving = targets.enumerated().filter { !WindowPlacement.matches(starts[$0.offset], $0.element.1) }
+        guard !moving.isEmpty else { return }
         guard animated, !disableAnimations, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            for (_, target) in moving { _ = AX.setFrame(target.0, target.1) }
-            schedule(); return
+            for (_, target) in moving { place(target.0, at: target.1) }
+            verifyPlacement(); return
         }
         let began = Date()
         let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] timer in
@@ -457,12 +550,39 @@ final class WindowManager: ObservableObject {
                                    y: start.minY + (end.minY - start.minY) * eased,
                                    width: start.width + (end.width - start.width) * eased,
                                    height: start.height + (end.height - start.height) * eased)
-                _ = AX.setFrame(target.0, frame)
+                self.place(target.0, at: frame, remember: false)
             }
-            if progress >= 1 { timer.invalidate(); self.animation = nil; self.schedule() }
+            if progress >= 1 {
+                timer.invalidate(); self.animation = nil
+                for (_, target) in moving { self.place(target.0, at: target.1) }
+                self.verifyPlacement()
+            }
         }
         animation = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func assignDisplays(_ targets: [(AXUIElement, CGRect)]) {
+        for (element, frame) in targets {
+            if let index = windows.firstIndex(where: { CFEqual($0.element, element) }) { windows[index].frame = frame }
+        }
+    }
+
+    private func place(_ element: AXUIElement, at target: CGRect, remember: Bool = true) {
+        applyingFrames = true
+        defer { applyingFrames = false }
+        let before = AX.frame(element)
+        if before.map({ !WindowPlacement.matches($0, target) }) ?? true { lastPlacement = Date() }
+        let succeeded = AX.setFrame(element, target)
+        if remember {
+            requestedFrames.removeAll { CFEqual($0.0, element) }
+            if succeeded { requestedFrames.append((element, target)) }
+        }
+        guard let actual = AX.frame(element) else { return }
+        if let index = windows.firstIndex(where: { CFEqual($0.element, element) }) { windows[index].frame = actual }
+        if !succeeded {
+            message = "An app rejected a window position or size update. compo.sh retries briefly; use Retile Now or float the window if it persists."
+        }
     }
 
 }

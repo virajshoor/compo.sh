@@ -15,17 +15,20 @@ enum AX {
         var point = CGPoint.zero, size = CGSize.zero
         guard AXValueGetValue(p as! AXValue, .cgPoint, &point),
               AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
-        return CGRect(origin: point, size: size)
+        let frame = CGRect(origin: point, size: size)
+        return WindowPlacement.isValid(frame) ? frame : nil
     }
 
     static func setFrame(_ window: AXUIElement, _ frame: CGRect) -> Bool {
-        var point = frame.origin, size = frame.size
-        guard let position = AXValueCreate(.cgPoint, &point), let dimensions = AXValueCreate(.cgSize, &size) else { return false }
-        // Resize before moving, then resize again for apps that constrain size to their old display.
-        AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, dimensions)
-        let moved = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, position)
-        let resized = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, dimensions)
-        return moved == .success && resized == .success
+        WindowPlacement.apply(frame, read: { self.frame(window) }, resize: { size in
+            var size = size
+            guard let value = AXValueCreate(.cgSize, &size) else { return false }
+            return AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value) == .success
+        }, move: { point in
+            var point = point
+            guard let value = AXValueCreate(.cgPoint, &point) else { return false }
+            return AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, value) == .success
+        })
     }
 
     static func focusedWindow() -> AXUIElement? {

@@ -17,6 +17,10 @@ final class DragController {
         panel.contentView = preview
         let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
         let receive: (NSEvent) -> Void = { event in
+            if let point = event.cgEvent?.location {
+                handler(event.type, point)
+                return
+            }
             let point = NSEvent.mouseLocation
             let top = NSScreen.screens.first?.frame.maxY ?? 0
             handler(event.type, CGPoint(x: point.x, y: top - point.y))

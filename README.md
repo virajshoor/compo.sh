@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** Version 0.2.2 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** Version 0.2.3 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -75,6 +75,8 @@ Rules live at `~/Library/Application Support/compo/config.json`. Use exact bundl
 
 ## Native, with boundaries
 
+**0.2.3:** placement skips unchanged frames, corrects origin shifts after resizing, and checks settled sizes before adapting layouts to app minimums. Columns can become rows or a grid to avoid overlap. Activation and geometry events trigger bounded recovery; brief Accessibility/WindowServer mismatches preserve known layout state. Clicks no longer interrupt swap animations, and snaps/swaps use the same constraint-aware layout path, including display crossings.
+
 **0.2.2:** clicking to activate a window cannot trigger a snap or swap. Placement now requires a mouse-drag event, pointer travel, and window movement; content drags and live resizing remain excluded.
 
 **0.2.1:** **Disable All Animations** is on by default, including after upgrading. Edge snaps, drag-to-swap, and keyboard swaps place windows instantly; drag overlays remain visible without appearance animations. Turn this option off to restore swap/replace transitions, which respect Reduce Motion. Edge snaps stay instant. This preference persists and controls compo.sh window placement; macOS still controls its own Spaces and Mission Control transitions.
@@ -83,8 +85,8 @@ compo.sh arranges existing windows through Accessibility. macOS still handles re
 
 - **Snap Edges:** on macOS 15+, compo.sh saves native edge/top/Option tiling preferences and disables competing previews while snapping is active. Turning snapping off, pausing, or quitting normally restores them. These preferences are undocumented and may change after OS updates.
 - **After a crash:** reopen compo.sh, then pause or turn off Snap Edges to restore saved native settings. If needed, adjust tiling in System Settings → Desktop & Dock.
-- **App limits:** some windows enforce minimum sizes or reject Accessibility writes. Float them or use fewer panes. Dialogs, minimized windows, native fullscreen windows, hidden apps, and compo.sh itself are excluded.
-- **Manual placement:** snaps and swaps remain until window membership changes or you choose Retile Now. Quitting does not restore earlier window frames.
+- **App limits:** compo.sh learns enforced minimum sizes and tries fitting rows, columns, or grids. If none fits, or an app rejects writes, the menu reports the problem; float a window or use fewer panes. Retile Now clears learned limits and retries. Dialogs, minimized windows, native fullscreen windows, hidden apps, and compo.sh itself are excluded.
+- **Manual placement:** snaps and swaps remain until window membership changes or you choose Retile Now, provided they fit the display and app minimums. Zoom intentionally covers other panes. Quitting does not restore earlier window frames.
 - **Privacy:** no app network requests or screen capture. Window metadata is read locally to manage visible windows. The distributed app's signing certificate publicly identifies its developer.
 
 Pause anytime with `⌃⌥ P`. Before uninstalling, turn off Launch at Login, quit normally, then remove the app. Revoke Accessibility access in System Settings if desired.
@@ -119,7 +121,7 @@ swiftc Sources/Compo/LaunchBehavior.swift Tests/LaunchBehaviorCheck.swift -o /tm
 /tmp/compo-launch-check
 ```
 
-Geometry tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, and click-versus-drag placement intent. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
+26 Swift tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, and simulated activation recovery. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
 
 ### Around the source
 
