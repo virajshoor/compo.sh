@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">compo.sh</h1>
-<p align="center"><strong>A little order. A lot of room.</strong><br />An app-aware window manager for macOS.</p>
+<p align="center"><strong>A little order. A lot of room.</strong><br />An app-aware window manager for macOS.<br />the yabai killer</p>
 
 <p align="center">
   <a href="https://github.com/virajshoor/compo.sh/releases/latest/download/compo.sh-macOS.zip"><strong>Download for Mac ↗</strong></a>
@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** Version 0.2.5 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** Version 0.2.6 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -60,7 +60,7 @@ Shortcuts are fixed for now. They may conflict with VoiceOver or other apps. Flo
 
 ### Instant desktop switching
 
-On macOS 26.6 and later, `⌃⌥⌘ ← / →` switches adjacent Spaces on the display under the pointer without the sliding transition. It works while tiling is paused, requires Accessibility access, includes fullscreen Spaces, and stops at the first or last Space. Rapid repeats are briefly ignored while Dock commits a switch.
+On macOS 26.6 and later, `⌃⌥⌘ ← / →` switches adjacent Spaces on the display under the pointer without the sliding transition. It works while tiling is paused, requires Accessibility access, includes fullscreen Spaces, and stops at the first or last Space. Each desktop shortcut acts once per press: holding the arrow does not repeat. Release it before pressing again. Keep Control, Option, and Command held while tapping either arrow successively. Rapid taps queue in order while Dock commits each switch; they are not discarded.
 
 This changes no system-wide Reduce Motion settings. Native trackpad swipes, native Control–Left/Right shortcuts, and other macOS animations keep their existing behavior. Instant cuts use an undocumented Dock gesture protocol; future macOS updates may require compatibility fixes. On older macOS, use native desktop shortcuts.
 
@@ -81,6 +81,8 @@ Choose **Edit App Rules**, edit the file, then **Reload App Rules**. Invalid JSO
 Rules live at `~/Library/Application Support/compo/config.json`. Use exact bundle identifiers. Allowed roles: `browser`, `terminal`, `document`, `other`. File limit: 256 KB.
 
 ## Native, with boundaries
+
+**0.2.6:** desktop shortcuts accept one action per press and rearm on release. Holding an arrow no longer repeats through every desktop. Keep modifiers held and tap either arrow repeatedly or alternate directions; quick taps queue in order instead of being discarded during Dock’s commit interval. Window focus and swap shortcuts retain their existing repeat behavior.
 
 **0.2.5:** failed resize writes now still feed stable size constraints into fitting; placement retries a rejected resize after moving to the destination. Visible-window discovery uses WindowServer identities when available, preventing identical frames on different Spaces from being mistaken for the same visible window. Space changes discard the previous desktop’s window list before rediscovery. New desktop shortcuts use instant cuts without changing system-wide motion settings.
 
@@ -132,7 +134,7 @@ swiftc Sources/Compo/LaunchBehavior.swift Tests/LaunchBehaviorCheck.swift -o /tm
 /tmp/compo-launch-check
 ```
 
-40 Swift tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, simulated activation recovery, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, and gesture encoding. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
+46 Swift tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, simulated activation recovery, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, gesture encoding, shortcut hold/release behavior, rapid alternating desktop taps, and delayed queue dispatch. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
 
 ### Around the source
 

@@ -381,7 +381,7 @@ final class WindowManager: ObservableObject {
     func perform(_ action: HotkeyAction) {
         if case .desktop(let right) = action {
             guard trusted else { requestAccess(); return }
-            if let error = desktopSwitcher.switchDesktop(right: right) { message = error }
+            desktopSwitcher.switchDesktop(right: right) { [weak self] error in self?.message = error }
             return
         }
         if action == .toggle { enabled.toggle(); return }

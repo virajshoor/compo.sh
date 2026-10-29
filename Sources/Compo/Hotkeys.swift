@@ -10,12 +10,15 @@ final class Hotkeys {
     private var references: [EventHotKeyRef] = []
     private let callback: (HotkeyAction) -> Void
     private var actions: [UInt32: HotkeyAction] = [:]
+    private var desktopPress = HotkeyPress()
     private(set) var error: String?
     private let signature: OSType = 0x434F4D50 // COMP
 
     init(callback: @escaping (HotkeyAction) -> Void) {
         self.callback = callback
-        var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var events = [kEventHotKeyPressed, kEventHotKeyReleased].map {
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32($0))
+        }
         let status = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
             guard let event, let context else { return OSStatus(eventNotHandledErr) }
             let keys = Unmanaged<Hotkeys>.fromOpaque(context).takeUnretainedValue()
@@ -25,9 +28,13 @@ final class Hotkeys {
                                           MemoryLayout<EventHotKeyID>.size, nil, &id)
             guard result == noErr, id.signature == keys.signature,
                   let action = keys.actions[id.id] else { return OSStatus(eventNotHandledErr) }
+            let pressed = GetEventKind(event) == UInt32(kEventHotKeyPressed)
+            if case .desktop = action {
+                guard keys.desktopPress.update(id: id.id, isPressed: pressed) else { return noErr }
+            } else if !pressed { return noErr }
             keys.callback(action)
             return noErr
-        }, 1, &event, Unmanaged.passUnretained(self).toOpaque(), &handler)
+        }, events.count, &events, Unmanaged.passUnretained(self).toOpaque(), &handler)
         guard status == noErr else { error = "Couldn’t install keyboard shortcuts (\(status)). Restart compo to retry."; return }
         let modifiers = UInt32(controlKey | optionKey)
         let directions: [(Int, Direction)] = [(kVK_LeftArrow, .left), (kVK_RightArrow, .right),

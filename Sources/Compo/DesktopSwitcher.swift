@@ -2,15 +2,34 @@ import AppKit
 import CompoCore
 
 final class DesktopSwitcher {
-    private var lastSwitch = Date.distantPast
+    private var queue = DesktopSwitchQueue()
+    private var timer: Timer?
 
-    func switchDesktop(right: Bool) -> String? {
+    func switchDesktop(right: Bool, reportError: @escaping (String) -> Void) {
+        queue.append(right: right)
+        drain(reportError: reportError)
+    }
+
+    private func drain(reportError: @escaping (String) -> Void) {
+        guard timer == nil else { return }
+        if let right = queue.take(at: ProcessInfo.processInfo.systemUptime),
+           let error = performSwitch(right: right) { reportError(error) }
+        guard !queue.isEmpty else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: queue.delay(at: ProcessInfo.processInfo.systemUptime),
+                                     repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.timer = nil
+            self.drain(reportError: reportError)
+        }
+    }
+
+    deinit { timer?.invalidate() }
+
+    private func performSwitch(right: Bool) -> String? {
         let version = ProcessInfo.processInfo.operatingSystemVersion
         guard DesktopGesture.supported(version) else {
             return "Instant desktop switching requires macOS 26.6 or later. On older macOS, use the native Control–Left/Right shortcuts."
         }
-        // Avoid reading stale Space state while Dock commits the preceding gesture.
-        guard Date().timeIntervalSince(lastSwitch) >= 0.45 else { return nil }
         guard let spaces = currentDisplaySpaces() else {
             return "Could not read desktops for this display. Restart compo.sh to retry."
         }
@@ -20,7 +39,6 @@ final class DesktopSwitcher {
         guard let events = DesktopGesture.events(right: right, version: version, naturalScrolling: natural) else {
             return "This macOS version rejected the instant desktop gesture format. Use Control–Left/Right instead."
         }
-        lastSwitch = Date()
         events.forEach { $0.post(tap: .cgSessionEventTap) }
         return nil
     }
