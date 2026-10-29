@@ -130,6 +130,15 @@ struct ControlPanel: View {
                     .foregroundStyle(Brand.accent)
             }
 
+            if let message = manager.message {
+                HStack(alignment: .top) {
+                    Image(systemName: "exclamationmark.triangle")
+                    Text(message).fixedSize(horizontal: false, vertical: true)
+                    Button { manager.message = nil } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.plain).accessibilityLabel("Dismiss message")
+                }.font(.system(size: 11)).foregroundStyle(.orange)
+            }
+
             if !manager.trusted {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Accessibility Access Required", systemImage: "hand.raised")
@@ -246,15 +255,6 @@ struct ControlPanel: View {
                     shortcut("Reset Zoom & Retile", "⌃⌥ R")
                 }.padding(.top, 10)
             }.font(.system(size: 12)).tint(.secondary)
-
-            if let message = manager.message {
-                HStack(alignment: .top) {
-                    Image(systemName: "exclamationmark.triangle")
-                    Text(message).fixedSize(horizontal: false, vertical: true)
-                    Button { manager.message = nil } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.plain).accessibilityLabel("Dismiss message")
-                }.font(.system(size: 11)).foregroundStyle(.orange)
-            }
 
             HStack {
                 Button("Open Guide PDF…") {

@@ -100,4 +100,25 @@ final class FittingLayoutTests: XCTestCase {
             }
         }
     }
+
+    func testSixMixedWindowsFitUnevenPanesWhenEveryUniformGridFails() throws {
+        let bounds = CGRect(x: 0, y: 30, width: 2000, height: 1200)
+        let minimums = [CGSize(width: 1100, height: 700), CGSize(width: 850, height: 400),
+                        CGSize(width: 850, height: 280), CGSize(width: 600, height: 450),
+                        CGSize(width: 600, height: 450), CGSize(width: 600, height: 450)]
+        for layout in Layout.allCases {
+            let preferred = layout.frames(count: 6, in: bounds, gap: 10, ratio: 0.58)
+            let frames = try XCTUnwrap(FittingLayout.frames(preferred: preferred, minimums: minimums, in: bounds, gap: 10))
+            assertFits(frames, minimums: minimums, in: bounds)
+            XCTAssertEqual(frames, FittingLayout.frames(preferred: preferred, minimums: minimums, in: bounds, gap: 10))
+        }
+    }
+
+    func testTallMainBesideTwoShortWindowsDoesNotRequireSharedRows() throws {
+        let bounds = CGRect(x: -1200, y: -800, width: 1200, height: 800)
+        let minimums = [CGSize(width: 700, height: 700), CGSize(width: 450, height: 350), CGSize(width: 450, height: 350)]
+        let preferred = Array(repeating: bounds, count: 3)
+        let frames = try XCTUnwrap(FittingLayout.frames(preferred: preferred, minimums: minimums, in: bounds, gap: 10))
+        assertFits(frames, minimums: minimums, in: bounds)
+    }
 }

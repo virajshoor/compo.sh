@@ -48,7 +48,72 @@ public enum FittingLayout {
                     + abs(frame.width - original.width) + abs(frame.height - original.height)
             }
         }
-        return candidates.min { distance($0) < distance($1) }
+        if let grid = candidates.min(by: { distance($0) < distance($1) }) { return grid }
+        return partition(preferred: preferred, minimums: minimums, area: area, gap: gap)
+    }
+
+    private indirect enum Partition {
+        case window(Int, CGSize)
+        case split(Bool, CGSize, Partition, Partition)
+
+        var size: CGSize {
+            switch self {
+            case .window(_, let size), .split(_, let size, _, _): return size
+            }
+        }
+
+        func place(in bounds: CGRect, gap: CGFloat, into frames: inout [CGRect]) {
+            switch self {
+            case .window(let index, _): frames[index] = bounds
+            case .split(let horizontal, _, let first, let second):
+                let available = (horizontal ? bounds.width : bounds.height) - gap
+                let a = horizontal ? first.size.width : first.size.height
+                let b = horizontal ? second.size.width : second.size.height
+                let length = a + (available - a - b) / 2
+                var left = bounds, right = bounds
+                if horizontal {
+                    left.size.width = length; right.origin.x += length + gap; right.size.width -= length + gap
+                } else {
+                    left.size.height = length; right.origin.y += length + gap; right.size.height -= length + gap
+                }
+                first.place(in: left, gap: gap, into: &frames)
+                second.place(in: right, gap: gap, into: &frames)
+            }
+        }
+    }
+
+    private static func partition(preferred: [CGRect], minimums: [CGSize], area: CGRect, gap: CGFloat) -> [CGRect]? {
+        // shortcut: ordered slicing layouts, not exhaustive rectangle packing; expand if valid layouts remain rejected.
+        var plans: [Range<Int>: [Partition]] = [:]
+        for i in minimums.indices {
+            plans[i..<i+1] = [.window(i, CGSize(width: max(1, minimums[i].width), height: max(1, minimums[i].height)))]
+        }
+        guard minimums.count > 1 else { return nil }
+        for length in 2...minimums.count {
+            for start in 0...(minimums.count - length) {
+                let end = start + length
+                var choices: [Partition] = []
+                for split in (start+1)..<end {
+                    for first in plans[start..<split] ?? [] {
+                        for second in plans[split..<end] ?? [] {
+                            for horizontal in [true, false] {
+                                let size = CGSize(width: horizontal ? first.size.width + gap + second.size.width : max(first.size.width, second.size.width),
+                                                  height: horizontal ? max(first.size.height, second.size.height) : first.size.height + gap + second.size.height)
+                                guard size.width <= area.width, size.height <= area.height,
+                                      !choices.contains(where: { $0.size.width <= size.width && $0.size.height <= size.height }) else { continue }
+                                choices.removeAll { $0.size.width >= size.width && $0.size.height >= size.height }
+                                choices.append(.split(horizontal, size, first, second))
+                            }
+                        }
+                    }
+                }
+                plans[start..<end] = choices
+            }
+        }
+        guard let plan = plans[0..<minimums.count]?.min(by: { $0.size.width * $0.size.height < $1.size.width * $1.size.height }) else { return nil }
+        var frames = preferred
+        plan.place(in: area, gap: gap, into: &frames)
+        return frames
     }
 
     private static func allocate(_ minimums: [CGFloat], preferred: [CGFloat], length: CGFloat, gap: CGFloat) -> [CGFloat]? {

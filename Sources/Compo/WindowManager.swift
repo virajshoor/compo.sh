@@ -50,11 +50,12 @@ final class WindowManager: ObservableObject {
     private var permissionTimer: Timer?
     private var pending: DispatchWorkItem?
     private var verification: DispatchWorkItem?
-    private var recoveryBudget = 3
+    private var recoveryBudget = 6
     private var applyingFrames = false
     private var lastPlacement = Date.distantPast
     private var sizeLimits: [(AXUIElement, CGSize)] = []
     private var requestedFrames: [(AXUIElement, CGRect)] = []
+    private var resizeFeedback: [(AXUIElement, ResizeFeedback)] = []
     private var missingSamples: [(AXUIElement, Int)] = []
     private var hotkeys: Hotkeys?
     private var zoomed: AXUIElement?
@@ -153,7 +154,7 @@ final class WindowManager: ObservableObject {
     }
 
     func schedule(recover: Bool = true) {
-        if recover { recoveryBudget = 3 }
+        if recover { recoveryBudget = 6 }
         guard pending == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             self?.pending = nil
@@ -279,12 +280,14 @@ final class WindowManager: ObservableObject {
                 }
                 let old = windows.first { CFEqual($0.element, window) }
                 let targets = requestedFrames.filter { CFEqual($0.0, window) }.map(\.1)
-                // Read settled geometry, not an application's asynchronous resize response.
-                if Date().timeIntervalSince(lastPlacement) >= 0.2, let requested = targets.first {
+                if let index = resizeFeedback.firstIndex(where: { CFEqual($0.0, window) }) {
                     let previous = sizeLimits.first { CFEqual($0.0, window) }?.1 ?? .zero
-                    let minimum = WindowPlacement.minimumSize(requested: requested, actual: frame, previous: previous)
-                    sizeLimits.removeAll { CFEqual($0.0, window) }
-                    sizeLimits.append((window, minimum))
+                    if let minimum = resizeFeedback[index].1.minimum(actual: frame, now: Date.timeIntervalSinceReferenceDate, previous: previous) {
+                        sizeLimits.removeAll { CFEqual($0.0, window) }
+                        sizeLimits.append((window, minimum))
+                    }
+                    if resizeFeedback[index].1.finished { resizeFeedback.remove(at: index) }
+                    else { verifyPlacement() }
                 }
                 let onScreen = WindowPlacement.visible(frame, previous: old?.frame, targets: targets, among: visibleFrames)
                 if !onScreen {
@@ -308,6 +311,7 @@ final class WindowManager: ObservableObject {
         floating.removeAll { old in !allElements.contains { CFEqual($0, old) } }
         sizeLimits.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
         requestedFrames.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
+        resizeFeedback.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
         missingSamples.removeAll { old in !allElements.contains { CFEqual($0, old.0) } }
         floatingCount = windows.filter { isFloating($0.element) }.count
         // Preserve user order through app launches, closes, and swaps.
@@ -356,7 +360,7 @@ final class WindowManager: ObservableObject {
             }
             let minimums = group.map { i in sizeLimits.first { CFEqual($0.0, windows[i].element) }?.1 ?? .zero }
             guard let fitted = FittingLayout.frames(preferred: preferred, minimums: minimums, in: screen, gap: gap) else {
-                message = "These windows cannot fit on this display at their minimum sizes. Float a window, close one, or use a larger display. Retile Now retries size limits."
+                message = "No supported layout fits these windows at their minimum sizes. Float a window, close one, or use a larger display. Retile Now retries size limits."
                 continue
             }
             targets += zip(group, fitted).map { (windows[$0.0].element, $0.1) }
@@ -429,7 +433,7 @@ final class WindowManager: ObservableObject {
     private func resetPlacement() {
         zoomed = nil
         manualFrames = []
-        sizeLimits = []; requestedFrames = []; missingSamples = []
+        sizeLimits = []; requestedFrames = []; resizeFeedback = []; missingSamples = []
         verification?.cancel(); verification = nil
         animation?.invalidate(); animation = nil
         cancelDrag()
@@ -457,6 +461,7 @@ final class WindowManager: ObservableObject {
             } else { return }
             guard windows.contains(where: { CFEqual($0.element, window) }), !isFloating(window),
                   let frame = AX.frame(window) else { return }
+            resizeFeedback.removeAll { CFEqual($0.0, window) }
             dragWindow = window; dragOriginal = frame
             dragPointerStart = point
             dragFrames = windows.filter { !isFloating($0.element) }.map { ($0.element, AX.frame($0.element) ?? $0.frame) }
@@ -577,6 +582,13 @@ final class WindowManager: ObservableObject {
         if remember {
             requestedFrames.removeAll { CFEqual($0.0, element) }
             if succeeded { requestedFrames.append((element, target)) }
+            // Preserve the original observation across retries of the same request.
+            if !resizeFeedback.contains(where: { CFEqual($0.0, element) && WindowPlacement.matches($0.1.target, target) }) {
+                resizeFeedback.removeAll { CFEqual($0.0, element) }
+                if succeeded, let before, abs(before.width - target.width) > 2 || abs(before.height - target.height) > 2 {
+                    resizeFeedback.append((element, ResizeFeedback(target: target, issuedAt: Date.timeIntervalSinceReferenceDate)))
+                }
+            }
         }
         guard let actual = AX.frame(element) else { return }
         if let index = windows.firstIndex(where: { CFEqual($0.element, element) }) { windows[index].frame = actual }
