@@ -59,6 +59,8 @@ final class WindowManager: ObservableObject {
     private var dragController: DragController?
     private var dragWindow: AXUIElement?
     private var dragOriginal = CGRect.zero
+    private var dragPointerStart = CGPoint.zero
+    private var hasDragged = false
     private var dragFrames: [(AXUIElement, CGRect)] = []
     private var dropFrames: [(AXUIElement, CGRect)] = []
     private var manualFrames: [(AXUIElement, CGRect)] = []
@@ -351,6 +353,7 @@ final class WindowManager: ObservableObject {
 
     private func cancelDrag() {
         dragWindow = nil
+        hasDragged = false
         dragFrames = []; dropFrames = []
         animation?.invalidate(); animation = nil
         dragController?.show(nil)
@@ -371,18 +374,20 @@ final class WindowManager: ObservableObject {
             guard windows.contains(where: { CFEqual($0.element, window) }), !isFloating(window),
                   let frame = AX.frame(window) else { return }
             dragWindow = window; dragOriginal = frame
+            dragPointerStart = point
             dragFrames = windows.filter { !isFloating($0.element) }.map { ($0.element, AX.frame($0.element) ?? $0.frame) }
             pending?.cancel()
             return
         }
         guard let window = dragWindow else { return }
         if type == .leftMouseDragged || type == .leftMouseUp {
+            if type == .leftMouseDragged { hasDragged = true }
             // One AX read per display frame at most; ignore content drags and live resizing.
             if type == .leftMouseDragged && Date().timeIntervalSince(lastDragUpdate) < 1.0 / 30 { return }
             lastDragUpdate = Date()
             guard let frame = AX.frame(window),
-                  abs(frame.width - dragOriginal.width) < 4, abs(frame.height - dragOriginal.height) < 4,
-                  hypot(frame.minX - dragOriginal.minX, frame.minY - dragOriginal.minY) > 5 else {
+                  WindowDrag.isMove(original: dragOriginal, current: frame, pointerStart: dragPointerStart,
+                                    pointer: point, hasDragged: hasDragged) else {
                 dropFrames = []; dragController?.show(nil)
                 if type == .leftMouseUp { cancelDrag(); schedule() }
                 return

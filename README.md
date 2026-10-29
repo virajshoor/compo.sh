@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** Version 0.2.1 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** Version 0.2.2 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -75,6 +75,8 @@ Rules live at `~/Library/Application Support/compo/config.json`. Use exact bundl
 
 ## Native, with boundaries
 
+**0.2.2:** clicking to activate a window cannot trigger a snap or swap. Placement now requires a mouse-drag event, pointer travel, and window movement; content drags and live resizing remain excluded.
+
 **0.2.1:** **Disable All Animations** is on by default, including after upgrading. Edge snaps, drag-to-swap, and keyboard swaps place windows instantly; drag overlays remain visible without appearance animations. Turn this option off to restore swap/replace transitions, which respect Reduce Motion. Edge snaps stay instant. This preference persists and controls compo.sh window placement; macOS still controls its own Spaces and Mission Control transitions.
 
 compo.sh arranges existing windows through Accessibility. macOS still handles rendering, fullscreen, Mission Control, and Spaces. This is a window manager, not a replacement compositor.
@@ -117,7 +119,7 @@ swiftc Sources/Compo/LaunchBehavior.swift Tests/LaunchBehaviorCheck.swift -o /tm
 /tmp/compo-launch-check
 ```
 
-Geometry tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, and snap zones. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
+Geometry tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, and click-versus-drag placement intent. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
 
 ### Around the source
 
