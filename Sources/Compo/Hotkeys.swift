@@ -2,7 +2,7 @@ import Carbon
 import CompoCore
 
 enum HotkeyAction: Equatable {
-    case focus(Direction), swap(Direction), cycle, float, zoom, toggle, retile
+    case desktop(Bool), focus(Direction), swap(Direction), cycle, float, zoom, toggle, retile
 }
 
 final class Hotkeys {
@@ -36,6 +36,8 @@ final class Hotkeys {
             register(key, modifiers, .focus(direction))
             register(key, modifiers | UInt32(shiftKey), .swap(direction))
         }
+        register(kVK_LeftArrow, modifiers | UInt32(cmdKey), .desktop(false))
+        register(kVK_RightArrow, modifiers | UInt32(cmdKey), .desktop(true))
         register(kVK_ANSI_L, modifiers, .cycle)
         register(kVK_Space, modifiers, .float)
         register(kVK_Return, modifiers, .zoom)

@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** Version 0.2.4 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** Version 0.2.5 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -43,11 +43,12 @@ Click the tiled menu bar icon for controls. The bundled **Open Guide PDF…** wo
 
 ## Your hands. Your rules.
 
-All shortcuts use **Control + Option**. Close the compo.sh panel first; actions target the focused app window.
+Shortcuts use **Control + Option**; desktop switching adds **Command**. Close the compo.sh panel first; actions target the focused app window.
 
 | Shortcut | Action |
 | :--- | :--- |
 | `⌃⌥` + arrows | Focus in that direction |
+| `⌃⌥⌘` + Left / Right | Previous / next desktop, instant cut |
 | `⌃⌥⇧` + arrows | Swap in that direction |
 | `⌃⌥ L` | Cycle Stack → Columns → Rows |
 | `⌃⌥ Space` | Float or tile the focused window |
@@ -56,6 +57,12 @@ All shortcuts use **Control + Option**. Close the compo.sh panel first; actions 
 | `⌃⌥ R` | Clear manual placements and retile |
 
 Shortcuts are fixed for now. They may conflict with VoiceOver or other apps. Floating and zoom are session-only; layout preferences persist.
+
+### Instant desktop switching
+
+On macOS 26.6 and later, `⌃⌥⌘ ← / →` switches adjacent Spaces on the display under the pointer without the sliding transition. It works while tiling is paused, requires Accessibility access, includes fullscreen Spaces, and stops at the first or last Space. Rapid repeats are briefly ignored while Dock commits a switch.
+
+This changes no system-wide Reduce Motion settings. Native trackpad swipes, native Control–Left/Right shortcuts, and other macOS animations keep their existing behavior. Instant cuts use an undocumented Dock gesture protocol; future macOS updates may require compatibility fixes. On older macOS, use native desktop shortcuts.
 
 ### App rules
 
@@ -74,6 +81,8 @@ Choose **Edit App Rules**, edit the file, then **Reload App Rules**. Invalid JSO
 Rules live at `~/Library/Application Support/compo/config.json`. Use exact bundle identifiers. Allowed roles: `browser`, `terminal`, `document`, `other`. File limit: 256 KB.
 
 ## Native, with boundaries
+
+**0.2.5:** failed resize writes now still feed stable size constraints into fitting; placement retries a rejected resize after moving to the destination. Visible-window discovery uses WindowServer identities when available, preventing identical frames on different Spaces from being mistaken for the same visible window. Space changes discard the previous desktop’s window list before rediscovery. New desktop shortcuts use instant cuts without changing system-wide motion settings.
 
 **0.2.4:** resize feedback is learned once from two stable observations, then expires; later app resizing cannot inflate old minimums. User interaction cancels pending feedback. When regular grids fail, uneven panes can fit mixed-size windows. Bounded recovery handles width changes that reveal height limits. Placement errors appear near the top of controls.
 
@@ -123,7 +132,7 @@ swiftc Sources/Compo/LaunchBehavior.swift Tests/LaunchBehaviorCheck.swift -o /tm
 /tmp/compo-launch-check
 ```
 
-33 Swift tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, simulated activation recovery, six-window uneven fitting, and stale or unsettled resize feedback. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
+40 Swift tests cover layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, simulated activation recovery, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, and gesture encoding. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
 
 ### Around the source
 
@@ -141,6 +150,6 @@ swiftc Sources/Compo/LaunchBehavior.swift Tests/LaunchBehaviorCheck.swift -o /tm
 
 Bug reports and focused pull requests welcome. For layout bugs, include macOS version, display arrangement, affected app names, and steps to reproduce. Remove private window titles and content before sharing screenshots.
 
-[Open an issue](https://github.com/virajshoor/compo.sh/issues) · [MIT license](LICENSE)
+[Open an issue](https://github.com/virajshoor/compo.sh/issues) · [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 <p align="center"><sub>Less arranging. More doing.</sub></p>

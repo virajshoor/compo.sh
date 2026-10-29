@@ -20,22 +20,23 @@ public enum WindowPlacement {
         guard isValid(target), let initial = read(), isValid(initial) else { return false }
         if matches(initial, target) { return true }
         var succeeded = true
+        var resizeSucceeded = true
         let needsResize = abs(initial.width - target.width) > 2 || abs(initial.height - target.height) > 2
-        if needsResize { succeeded = resize(target.size) && succeeded }
+        if needsResize { resizeSucceeded = resize(target.size) }
         guard let resized = read(), isValid(resized) else { return false }
         if abs(resized.minX - target.minX) > 2 || abs(resized.minY - target.minY) > 2 {
             succeeded = move(target.origin) && succeeded
         }
         guard let moved = read(), isValid(moved) else { return false }
         // A display crossing can change size limits. Do not repeatedly request a rejected minimum size.
-        if moved.size != resized.size && (abs(moved.width - target.width) > 2 || abs(moved.height - target.height) > 2) {
-            succeeded = resize(target.size) && succeeded
+        if (!resizeSucceeded || moved.size != resized.size) && (abs(moved.width - target.width) > 2 || abs(moved.height - target.height) > 2) {
+            resizeSucceeded = resize(target.size)
         }
         guard let final = read(), isValid(final) else { return false }
         if abs(final.minX - target.minX) > 2 || abs(final.minY - target.minY) > 2 {
             succeeded = move(target.origin) && succeeded
         }
-        return succeeded
+        return succeeded && resizeSucceeded
     }
 
     public static func minimumSize(requested: CGRect, actual: CGRect, previous: CGSize = .zero) -> CGSize {
@@ -44,8 +45,10 @@ public enum WindowPlacement {
                       height: actual.height > requested.height + 2 ? max(previous.height, actual.height) : previous.height)
     }
 
-    public static func visible(_ current: CGRect, previous: CGRect?, targets: [CGRect] = [], among frames: [CGRect]) -> Bool {
-        ([current] + (previous.map { [$0] } ?? []) + targets).contains { candidate in
+    public static func visible(_ current: CGRect, previous: CGRect?, targets: [CGRect] = [], among frames: [CGRect],
+                               windowID: CGWindowID? = nil, visibleIDs: Set<CGWindowID>? = nil) -> Bool {
+        if let windowID, let visibleIDs { return visibleIDs.contains(windowID) }
+        return ([current] + (previous.map { [$0] } ?? []) + targets).contains { candidate in
             frames.contains { matches(candidate, $0, tolerance: 3) }
         }
     }

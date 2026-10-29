@@ -49,9 +49,32 @@ final class WindowPlacementTests: XCTestCase {
         var writes = 0
         XCTAssertFalse(WindowPlacement.apply(target, read: { actual },
             resize: { _ in writes += 1; return false }, move: { _ in writes += 1; return false }))
-        XCTAssertLessThanOrEqual(writes, 3)
+        XCTAssertLessThanOrEqual(writes, 4)
         XCTAssertFalse(WindowPlacement.apply(target, read: { nil },
             resize: { _ in XCTFail("Unexpected resize"); return true }, move: { _ in XCTFail("Unexpected move"); return true }))
+    }
+
+    func testRejectedResizeRetriesAfterMovingToDestination() {
+        var actual = CGRect(x: 0, y: 40, width: 1100, height: 900)
+        var attempts = 0
+        XCTAssertTrue(WindowPlacement.apply(target, read: { actual }, resize: { size in
+            attempts += 1
+            guard actual.origin == self.target.origin else { return false }
+            actual.size = size
+            return true
+        }, move: { actual.origin = $0; return true }))
+        XCTAssertEqual(actual, target)
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testRejectedSizeStillProvidesStableConstraintsForFitting() throws {
+        var actual = CGRect(x: 0, y: 40, width: 1000, height: 800)
+        XCTAssertFalse(WindowPlacement.apply(target, read: { actual },
+            resize: { _ in false }, move: { actual.origin = $0; return true }))
+        var feedback = ResizeFeedback(target: target, issuedAt: 0)
+        XCTAssertNil(feedback.minimum(actual: actual, now: 0.3, previous: .zero))
+        XCTAssertEqual(try XCTUnwrap(feedback.minimum(actual: actual, now: 0.6, previous: .zero)),
+                       CGSize(width: 1000, height: 0))
     }
 
     func testInvalidFramesNeverReachAccessibilityWrites() {
@@ -68,6 +91,13 @@ final class WindowPlacementTests: XCTestCase {
         XCTAssertTrue(WindowPlacement.visible(old, previous: nil, targets: [target], among: [target]))
         XCTAssertFalse(WindowPlacement.visible(old, previous: nil, among: [target]))
         XCTAssertFalse(WindowPlacement.visible(target, previous: old, among: []))
+    }
+
+    func testWindowIdentitySeparatesIdenticalFramesOnDifferentDesktops() {
+        XCTAssertTrue(WindowPlacement.visible(target, previous: nil, among: [], windowID: 7, visibleIDs: [7]))
+        XCTAssertFalse(WindowPlacement.visible(target, previous: target, targets: [target], among: [target],
+                                               windowID: 8, visibleIDs: [7]))
+        XCTAssertTrue(WindowPlacement.visible(target, previous: nil, among: [target], windowID: nil, visibleIDs: [7]))
     }
 
     func testDisplaySelectionHandlesNegativeOriginsAndDisconnectedScreens() {

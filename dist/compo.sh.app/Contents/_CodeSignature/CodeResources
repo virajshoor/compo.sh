@@ -8,6 +8,10 @@
 		<data>
 		fZk4ESziOfRwyJiO5Z+VLXrBjMY=
 		</data>
+		<key>Resources/THIRD_PARTY_NOTICES.md</key>
+		<data>
+		X0z5+bJ9MUE4fsODwf8jPTSyGao=
+		</data>
 		<key>Resources/compo.sh-guide.pdf</key>
 		<data>
 		/FyZ3kvgB7gIANsT3jY597hkdhM=
@@ -20,6 +24,13 @@
 			<key>hash2</key>
 			<data>
 			yu5sCbNcqqoA9B08BVc+9yKBXK33aSL4FxLhOE5E6gg=
+			</data>
+		</dict>
+		<key>Resources/THIRD_PARTY_NOTICES.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			6zp1XRWpGQihG3o4A6N03yfpu4TQmjZPnhAMM5X3640=
 			</data>
 		</dict>
 		<key>Resources/compo.sh-guide.pdf</key>

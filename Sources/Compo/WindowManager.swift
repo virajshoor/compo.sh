@@ -61,6 +61,7 @@ final class WindowManager: ObservableObject {
     private var zoomed: AXUIElement?
 
     private let nativeTiling = NativeTiling()
+    private let desktopSwitcher = DesktopSwitcher()
     private var rules = AppRules(apps: [:])
     private var appRoles: [pid_t: AppRole] = [:]
     private var ruleFloats: [AXUIElement] = []
@@ -86,6 +87,7 @@ final class WindowManager: ObservableObject {
                      NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification,
                      NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
             workspaceTokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                if name == NSWorkspace.activeSpaceDidChangeNotification { self?.windows = [] }
                 self?.resetPlacement()
                 self?.schedule()
             })
@@ -229,6 +231,11 @@ final class WindowManager: ObservableObject {
         ruleFloats = []
         for app in apps {
             let pid = app.processIdentifier
+            let visibleIDs = Set(visible.compactMap { info -> CGWindowID? in
+                guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+                      (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 else { return nil }
+                return (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+            })
             let visibleFrames = visible.compactMap { info -> CGRect? in
                 guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
                       (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
@@ -251,7 +258,7 @@ final class WindowManager: ObservableObject {
                 if !app.isHidden {
                     let retained = windows.filter { old in
                         old.pid == pid && WindowPlacement.visible(old.frame, previous: nil,
-                            targets: requestedFrames.filter { CFEqual($0.0, old.element) }.map(\.1), among: visibleFrames)
+                            targets: requestedFrames.filter { CFEqual($0.0, old.element) }.map(\.1), among: visibleFrames, windowID: AX.windowID(old.element), visibleIDs: visibleIDs)
                     }
                     // A transient AX timeout must not erase the entire application's layout state.
                     discovered += retained
@@ -271,7 +278,8 @@ final class WindowManager: ObservableObject {
                       AX.writable(window, kAXPositionAttribute), AX.writable(window, kAXSizeAttribute) else { continue }
                 guard let frame = AX.frame(window), frame.width > 80, frame.height > 60 else {
                     if let old = windows.first(where: { CFEqual($0.element, window) }),
-                       visibleFrames.contains(where: { WindowPlacement.matches($0, old.frame, tolerance: 3) }) {
+                       WindowPlacement.visible(old.frame, previous: nil, among: visibleFrames,
+                                               windowID: AX.windowID(window), visibleIDs: visibleIDs) {
                         discovered.append(old)
                         if rule?.floating == true { ruleFloats.append(window) }
                         verifyPlacement()
@@ -289,12 +297,14 @@ final class WindowManager: ObservableObject {
                     if resizeFeedback[index].1.finished { resizeFeedback.remove(at: index) }
                     else { verifyPlacement() }
                 }
-                let onScreen = WindowPlacement.visible(frame, previous: old?.frame, targets: targets, among: visibleFrames)
+                let identity = AX.windowID(window)
+                let onScreen = WindowPlacement.visible(frame, previous: old?.frame, targets: targets, among: visibleFrames,
+                                                      windowID: identity, visibleIDs: visibleIDs)
                 if !onScreen {
                     let misses = missingSamples.first { CFEqual($0.0, window) }?.1 ?? 0
                     missingSamples.removeAll { CFEqual($0.0, window) }
                     missingSamples.append((window, misses + 1))
-                    guard old != nil, misses < 2 else { continue }
+                    guard identity == nil, old != nil, misses < 2 else { continue }
                     verifyPlacement()
                 } else { missingSamples.removeAll { CFEqual($0.0, window) } }
                 if let observer = observers[app.processIdentifier] {
@@ -369,6 +379,11 @@ final class WindowManager: ObservableObject {
     }
 
     func perform(_ action: HotkeyAction) {
+        if case .desktop(let right) = action {
+            guard trusted else { requestAccess(); return }
+            if let error = desktopSwitcher.switchDesktop(right: right) { message = error }
+            return
+        }
         if action == .toggle { enabled.toggle(); return }
         guard trusted, enabled else { return }
         if action == .retile { resetPlacement(); schedule(); return }
@@ -581,11 +596,11 @@ final class WindowManager: ObservableObject {
         let succeeded = AX.setFrame(element, target)
         if remember {
             requestedFrames.removeAll { CFEqual($0.0, element) }
-            if succeeded { requestedFrames.append((element, target)) }
+            requestedFrames.append((element, target))
             // Preserve the original observation across retries of the same request.
             if !resizeFeedback.contains(where: { CFEqual($0.0, element) && WindowPlacement.matches($0.1.target, target) }) {
                 resizeFeedback.removeAll { CFEqual($0.0, element) }
-                if succeeded, let before, abs(before.width - target.width) > 2 || abs(before.height - target.height) > 2 {
+                if let before, abs(before.width - target.width) > 2 || abs(before.height - target.height) > 2 {
                     resizeFeedback.append((element, ResizeFeedback(target: target, issuedAt: Date.timeIntervalSinceReferenceDate)))
                 }
             }

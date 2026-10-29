@@ -246,6 +246,7 @@ struct ControlPanel: View {
 
             DisclosureGroup("Keyboard Shortcuts", isExpanded: $showKeys) {
                 VStack(spacing: 8) {
+                    shortcut("Previous / Next Desktop", "⌃⌥⌘ ← / →")
                     shortcut("Focus Window", "⌃⌥ arrows")
                     shortcut("Swap Windows", "⌃⌥⇧ arrows")
                     shortcut("Next Layout", "⌃⌥ L")

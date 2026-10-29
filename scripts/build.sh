@@ -8,6 +8,7 @@ BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 -debug-info-format 
 APP="dist/compo.sh.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/compo" "$APP/Contents/MacOS/compo"
+cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/compo.sh-guide.pdf "$APP/Contents/Resources/compo.sh-guide.pdf"
 swift scripts/Icon.swift dist/AppIcon.iconset "$APP/Contents/Resources/AppIcon.icns"

@@ -3,6 +3,20 @@ import ApplicationServices
 import CompoCore
 
 enum AX {
+    private typealias WindowNumber = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> Int32
+    private static let windowNumber: WindowNumber? = {
+        // shortcut: private read-only AX identity bridge; replace when Apple exposes window IDs publicly.
+        guard let library = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_LAZY),
+              let symbol = dlsym(library, "_AXUIElementGetWindow") else { return nil }
+        return unsafeBitCast(symbol, to: WindowNumber.self)
+    }()
+
+    static func windowID(_ element: AXUIElement) -> CGWindowID? {
+        var id: CGWindowID = 0
+        guard windowNumber?(element, &id) == AXError.success.rawValue, id != 0 else { return nil }
+        return id
+    }
+
     static func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
