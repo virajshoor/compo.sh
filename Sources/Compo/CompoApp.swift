@@ -113,6 +113,8 @@ struct TileMark: View {
 struct ControlPanel: View {
     @ObservedObject var manager: WindowManager
     @State private var showKeys = false
+    @State private var workspaceName = ""
+    @State private var selectedWorkspace: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -246,16 +248,47 @@ struct ControlPanel: View {
 
             DisclosureGroup("Keyboard Shortcuts", isExpanded: $showKeys) {
                 VStack(spacing: 8) {
-                    shortcut("Previous / Next Desktop", "⌃⌥⌘ ← / →")
-                    shortcut("Focus Window", "⌃⌥ arrows")
-                    shortcut("Swap Windows", "⌃⌥⇧ arrows")
-                    shortcut("Next Layout", "⌃⌥ L")
-                    shortcut("Float / Tile Window", "⌃⌥ Space")
-                    shortcut("Zoom Window", "⌃⌥ Return")
-                    shortcut("Pause / Resume", "⌃⌥ P")
-                    shortcut("Reset Zoom & Retile", "⌃⌥ R")
+                    ForEach(manager.shortcuts) { binding in
+                        shortcut(binding.action, binding.display)
+                    }
+                    HStack {
+                        Button("Edit Shortcuts…", action: manager.editShortcuts)
+                        Button("Reload Shortcuts", action: manager.reloadShortcuts)
+                    }
+                    Text("Edit keys and modifiers in JSON. Duplicate or unavailable shortcuts keep previous working bindings.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
                 }.padding(.top, 10)
             }.font(.system(size: 12)).tint(.secondary)
+
+            Divider()
+            Toggle("Show Desktop Indicator", isOn: $manager.showDesktopIndicator)
+                .toggleStyle(.switch).tint(Brand.accent).font(.system(size: 12))
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Saved Workspaces").font(.system(size: 12, weight: .semibold))
+                HStack {
+                    TextField("Workspace name", text: $workspaceName)
+                        .textFieldStyle(.roundedBorder).accessibilityLabel("New workspace name")
+                    Button("Save") { manager.saveWorkspace(name: workspaceName) }
+                        .disabled(workspaceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !manager.trusted || manager.restoringWorkspace)
+                }
+                if !manager.workspaces.isEmpty {
+                    Picker("Workspace", selection: $selectedWorkspace) {
+                        Text("Choose…").tag(Optional<UUID>.none)
+                        ForEach(manager.workspaces) { workspace in Text(workspace.name).tag(Optional(workspace.id)) }
+                    }
+                    HStack {
+                        Button(manager.restoringWorkspace ? "Restoring…" : "Restore") {
+                            if let id = selectedWorkspace { manager.restoreWorkspace(id) }
+                        }.disabled(selectedWorkspace == nil || manager.restoringWorkspace || !manager.trusted || !manager.enabled)
+                        Button("Delete") {
+                            if let id = selectedWorkspace { manager.deleteWorkspace(id); selectedWorkspace = nil }
+                        }.disabled(selectedWorkspace == nil || manager.restoringWorkspace)
+                    }
+                }
+                Text("Saves apps, displays and pane sizes. Restore opens missing apps and matches visible windows by order within each app. Open documents yourself before restoring.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }.font(.system(size: 12))
+            Button("Export Diagnostics…", action: manager.exportDiagnostics).font(.system(size: 11))
 
             HStack {
                 Button("Open Guide PDF…") {
@@ -268,6 +301,7 @@ struct ControlPanel: View {
 
             HStack {
                 Button("Retile Now") { manager.perform(.retile) }.disabled(!manager.trusted || !manager.enabled)
+                Button("Undo") { manager.perform(.undo) }.disabled(!manager.canUndo || !manager.trusted || !manager.enabled)
                 Spacer()
                 Button("Quit compo.sh") { NSApp.terminate(nil) }
             }.font(.system(size: 11)).buttonStyle(.borderless)

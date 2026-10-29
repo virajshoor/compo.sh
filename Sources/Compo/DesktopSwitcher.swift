@@ -43,7 +43,7 @@ final class DesktopSwitcher {
         return nil
     }
 
-    private func currentDisplaySpaces() -> (index: Int, count: Int)? {
+    func currentDisplaySpaces() -> (index: Int, count: Int)? {
         // shortcut: private read-only Spaces metadata; replace if Apple exposes a supported API.
         guard let library = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY) else { return nil }
         defer { dlclose(library) }

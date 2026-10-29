@@ -3,6 +3,7 @@ import ApplicationServices
 import Combine
 import CompoCore
 import ServiceManagement
+import UniformTypeIdentifiers
 
 final class WindowManager: ObservableObject {
     @Published var trusted = AXIsProcessTrusted()
@@ -13,15 +14,19 @@ final class WindowManager: ObservableObject {
         }
     }
     @Published var layout = CompoCore.Layout(rawValue: UserDefaults.standard.string(forKey: "layout") ?? "") ?? .stack {
+        willSet { if newValue != layout { captureUndo() } }
         didSet { UserDefaults.standard.set(layout.rawValue, forKey: "layout"); resetPlacement(); schedule() }
     }
     @Published var appAwareLayout = UserDefaults.standard.object(forKey: "appAwareLayout") as? Bool ?? true {
+        willSet { if newValue != appAwareLayout { captureUndo() } }
         didSet { UserDefaults.standard.set(appAwareLayout, forKey: "appAwareLayout"); resetPlacement(); schedule() }
     }
     @Published var gap: Double = UserDefaults.standard.object(forKey: "gap") as? Double ?? 12 {
+        willSet { if newValue != gap { captureUndo() } }
         didSet { UserDefaults.standard.set(gap, forKey: "gap"); resetPlacement(); schedule() }
     }
     @Published var ratio: Double = UserDefaults.standard.object(forKey: "ratio") as? Double ?? 0.58 {
+        willSet { if newValue != ratio { captureUndo() } }
         didSet { UserDefaults.standard.set(ratio, forKey: "ratio"); resetPlacement(); schedule() }
     }
     @Published var snapEdges = UserDefaults.standard.object(forKey: "snapEdges") as? Bool ?? true {
@@ -42,6 +47,19 @@ final class WindowManager: ObservableObject {
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
     @Published var loginNeedsApproval = SMAppService.mainApp.status == .requiresApproval
 
+    @Published var canUndo = false
+    @Published var workspaces: [Workspace] = []
+    @Published var restoringWorkspace = false
+    @Published var shortcuts = ShortcutBinding.defaults
+    @Published var showDesktopIndicator = UserDefaults.standard.object(forKey: "showDesktopIndicator") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showDesktopIndicator, forKey: "showDesktopIndicator") }
+    }
+    private var undoSnapshot: ArrangementSnapshot<AXUIElement>?
+    private var workspacesLoaded = false
+    private var workspaceRestoreID: UUID?
+    private var overlapRecovery = OverlapRecovery()
+    private var diagnosticLog = DiagnosticLog()
+    private let desktopIndicator = DesktopIndicator()
     private var windows: [ManagedWindow] = []
     private var floating: [AXUIElement] = []
     private var observers: [pid_t: AXObserver] = [:]
@@ -50,7 +68,7 @@ final class WindowManager: ObservableObject {
     private var permissionTimer: Timer?
     private var pending: DispatchWorkItem?
     private var verification: DispatchWorkItem?
-    private var recoveryBudget = 6
+    private var recoveryBudget = 10
     private var applyingFrames = false
     private var lastPlacement = Date.distantPast
     private var sizeLimits: [(AXUIElement, CGSize)] = []
@@ -79,15 +97,24 @@ final class WindowManager: ObservableObject {
     func start() {
         if !trusted { enabled = false }
         reloadRules()
+        loadFeatures()
         updateNativeTiling()
         dragController = DragController { [weak self] type, point in self?.drag(type, point: point) }
         hotkeys = Hotkeys { [weak self] action in self?.perform(action) }
+        reloadShortcuts()
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification,
                      NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification,
                      NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
             workspaceTokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                if name == NSWorkspace.activeSpaceDidChangeNotification { self?.windows = [] }
+                if name == NSWorkspace.activeSpaceDidChangeNotification {
+                    self?.windows = []
+                    self?.canUndo = false; self?.undoSnapshot = nil
+                    self?.restoringWorkspace = false; self?.workspaceRestoreID = nil
+                    if let self, self.showDesktopIndicator, let spaces = self.desktopSwitcher.currentDisplaySpaces() {
+                        self.desktopIndicator.show(index: spaces.index, count: spaces.count)
+                    }
+                }
                 self?.resetPlacement()
                 self?.schedule()
             })
@@ -115,6 +142,7 @@ final class WindowManager: ObservableObject {
     }
 
     func stop() {
+        workspaceRestoreID = nil
         animation?.invalidate()
         dragController?.stop()
         _ = nativeTiling.takeOver(false)
@@ -156,7 +184,7 @@ final class WindowManager: ObservableObject {
     }
 
     func schedule(recover: Bool = true) {
-        if recover { recoveryBudget = 6 }
+        if recover { recoveryBudget = 10 }
         guard pending == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             self?.pending = nil
@@ -188,6 +216,9 @@ final class WindowManager: ObservableObject {
     }
 
     private func windowEvent(_ element: AXUIElement, name: String) {
+        diagnosticLog.record(name == kAXWindowMovedNotification ? .moved : name == kAXWindowResizedNotification ? .resized : .discovery,
+                             at: ProcessInfo.processInfo.systemUptime,
+                             window: windows.firstIndex { CFEqual($0.element, element) })
         if name == kAXWindowMovedNotification || name == kAXWindowResizedNotification {
             guard enabled, !applyingFrames, dragWindow == nil, animation == nil,
                   let known = windows.first(where: { CFEqual($0.element, element) }), !isFloating(element),
@@ -329,11 +360,33 @@ final class WindowManager: ObservableObject {
         ordered += discovered.filter { candidate in !ordered.contains { CFEqual($0.element, candidate.element) } }
         if ordered.count != windows.count || ordered.contains(where: { candidate in
             !windows.contains { CFEqual($0.element, candidate.element) }
-        }) { manualFrames = []; zoomed = nil }
+        }) { manualFrames = []; zoomed = nil; overlapRecovery = OverlapRecovery() }
         windows = ordered
         floatingCount = windows.filter { isFloating($0.element) }.count
         windowCount = windows.count
-        guard enabled else { return }
+        guard enabled, !restoringWorkspace else { return }
+        if zoomed == nil, !requestedFrames.isEmpty, resizeFeedback.isEmpty {
+            let managed = windows.filter { !isFloating($0.element) }
+            switch overlapRecovery.observe(managed.map(\.frame), at: ProcessInfo.processInfo.systemUptime) {
+            case .waiting: verifyPlacement(); return
+            case .retry:
+                diagnosticLog.record(.overlapRetry, at: ProcessInfo.processInfo.systemUptime)
+                for window in managed {
+                    if let target = requestedFrames.first(where: { CFEqual($0.0, window.element) })?.1 {
+                        let previous = sizeLimits.first { CFEqual($0.0, window.element) }?.1 ?? .zero
+                        let minimum = WindowPlacement.minimumSize(requested: target, actual: window.frame, previous: previous)
+                        sizeLimits.removeAll { CFEqual($0.0, window.element) }
+                        sizeLimits.append((window.element, minimum))
+                    }
+                }
+                manualFrames = []
+            case .blocked:
+                diagnosticLog.record(.overlapBlocked, at: ProcessInfo.processInfo.systemUptime)
+                message = "Windows still overlap after a settled recovery. An app may refuse its assigned size or position. Float a window, close one, or use Retile Now to retry. Export Diagnostics for details."
+                return
+            case .clear: break
+            }
+        }
         tile()
     }
 
@@ -385,8 +438,9 @@ final class WindowManager: ObservableObject {
             return
         }
         if action == .toggle { enabled.toggle(); return }
-        guard trusted, enabled else { return }
-        if action == .retile { resetPlacement(); schedule(); return }
+        guard trusted, enabled, !restoringWorkspace else { return }
+        if action == .undo { undoArrangement(); return }
+        if action == .retile { captureUndo(); resetPlacement(); schedule(); return }
         if action == .cycle {
             appAwareLayout = false
             let layouts = CompoCore.Layout.allCases
@@ -397,6 +451,7 @@ final class WindowManager: ObservableObject {
               let index = windows.firstIndex(where: { CFEqual($0.element, focused) }) else { return }
         switch action {
         case .float:
+            captureUndo()
             resetPlacement()
             if let i = floating.firstIndex(where: { CFEqual($0, focused) }) { floating.remove(at: i) }
             else { floating.append(focused) }
@@ -404,6 +459,7 @@ final class WindowManager: ObservableObject {
             schedule()
         case .zoom:
             guard !isFloating(focused) else { return }
+            captureUndo(); overlapRecovery = OverlapRecovery()
             zoomed = zoomed.map { CFEqual($0, focused) } == true ? nil : focused
             tile()
             AX.focus(focused)
@@ -412,6 +468,7 @@ final class WindowManager: ObservableObject {
             guard let next = direction.neighbor(from: frames[index], among: frames) else { return }
             if case .swap = action {
                 guard !isFloating(focused), !isFloating(windows[next].element) else { return }
+                captureUndo(); overlapRecovery = OverlapRecovery()
                 zoomed = nil
                 manualFrames = windows.filter { !isFloating($0.element) }.map { ($0.element, AX.frame($0.element) ?? $0.frame) }
                 let other = windows[next].element
@@ -446,6 +503,7 @@ final class WindowManager: ObservableObject {
     }
 
     private func resetPlacement() {
+        overlapRecovery = OverlapRecovery()
         zoomed = nil
         manualFrames = []
         sizeLimits = []; requestedFrames = []; resizeFeedback = []; missingSamples = []
@@ -538,6 +596,7 @@ final class WindowManager: ObservableObject {
                 let original = dragFrames
                 cancelDrag()
                 if !targets.isEmpty {
+                    captureUndo(frames: original); overlapRecovery = OverlapRecovery()
                     zoomed = nil
                     manualFrames = original.map { element, frame in
                         (element, targets.first { CFEqual($0.0, element) }?.1 ?? frame)
@@ -608,8 +667,192 @@ final class WindowManager: ObservableObject {
         guard let actual = AX.frame(element) else { return }
         if let index = windows.firstIndex(where: { CFEqual($0.element, element) }) { windows[index].frame = actual }
         if !succeeded {
+            diagnosticLog.record(.rejectedWrite, at: ProcessInfo.processInfo.systemUptime, window: windows.firstIndex { CFEqual($0.element, element) })
             message = "An app rejected a window position or size update. compo.sh retries briefly; use Retile Now or float the window if it persists."
         }
     }
 
+}
+
+extension WindowManager {
+    private func captureUndo(frames: [(AXUIElement, CGRect)]? = nil) {
+        guard !restoringWorkspace, !windows.isEmpty else { return }
+        let frames = frames ?? windows.compactMap { window in AX.frame(window.element).map { (window.element, $0) } }
+        undoSnapshot = ArrangementSnapshot(frames: frames, floating: floating, zoomed: zoomed)
+        canUndo = !frames.isEmpty
+    }
+
+    private func undoArrangement() {
+        guard canUndo, let snapshot = undoSnapshot?.surviving(in: windows.map(\.element), equal: { CFEqual($0, $1) }) else { return }
+        let frames = snapshot.frames
+        pending?.cancel(); pending = nil
+        resetPlacement()
+        floating = snapshot.floating
+        zoomed = snapshot.zoomed
+        manualFrames = frames
+        assignDisplays(frames)
+        canUndo = false; undoSnapshot = nil
+        move(frames, animated: false)
+        floatingCount = windows.filter { isFloating($0.element) }.count
+    }
+
+    private func loadFeatures() {
+        do {
+            let loaded = try FeatureSettings.load([Workspace].self, name: "workspaces", fallback: [])
+            guard loaded.count <= 32, Set(loaded.map(\.id)).count == loaded.count else {
+                throw SettingsError.invalid("At most 32 unique workspaces are allowed.")
+            }
+            try loaded.forEach { try $0.validate() }
+            workspaces = loaded; workspacesLoaded = true
+        } catch { message = "Couldn’t load saved workspaces: \(error.localizedDescription)" }
+    }
+
+    func editShortcuts() {
+        do {
+            let url = FeatureSettings.url("shortcuts")
+            if !FileManager.default.fileExists(atPath: url.path) { try FeatureSettings.save(shortcuts, name: "shortcuts") }
+            guard NSWorkspace.shared.open(url) else { throw SettingsError.invalid("Choose a default JSON editor in Finder.") }
+        } catch { message = "Couldn’t open shortcuts: \(error.localizedDescription)" }
+    }
+
+    func reloadShortcuts() {
+        do {
+            let loaded = try FeatureSettings.load([ShortcutBinding].self, name: "shortcuts", fallback: ShortcutBinding.defaults)
+            try ShortcutBinding.validate(loaded)
+            if hotkeys?.apply(loaded) == true { shortcuts = loaded }
+            else if let error = hotkeys?.error { message = error }
+        } catch { message = "Couldn’t load shortcuts: \(error.localizedDescription). Previous shortcuts kept." }
+    }
+
+    private var workspaceDisplays: [(String, CGRect)] {
+        zip(NSScreen.screens, displays).map { screen, frame in
+            let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+            let uuid = number.flatMap { CGDisplayCreateUUIDFromDisplayID($0.uint32Value)?.takeRetainedValue() }
+            return (uuid.map { CFUUIDCreateString(nil, $0) as String } ?? "", frame)
+        }
+    }
+
+    func saveWorkspace(name: String) {
+        guard trusted, !restoringWorkspace else { return }
+        do {
+            guard workspacesLoaded else { throw SettingsError.invalid("Fix workspaces.json before saving; the existing file has been preserved.") }
+            guard workspaces.count < 32 else { throw SettingsError.invalid("Delete a workspace before saving another (limit 32).") }
+            let screens = workspaceDisplays
+            var ordinals: [String: Int] = [:]
+            let panes = windows.compactMap { window -> Workspace.Pane? in
+                guard let bundle = NSRunningApplication(processIdentifier: window.pid)?.bundleIdentifier,
+                      let frame = AX.frame(window.element), let index = displayIndex(for: frame, in: screens.map(\.1)) else { return nil }
+                let ordinal = ordinals[bundle, default: 0]; ordinals[bundle] = ordinal + 1
+                return Workspace.Pane(bundle: bundle, ordinal: ordinal, display: screens[index].0, fallbackDisplay: index,
+                                      rect: Workspace.normalized(frame, in: screens[index].1), floating: isFloating(window.element))
+            }
+            let workspace = Workspace(name: name.trimmingCharacters(in: .whitespacesAndNewlines), windows: panes)
+            try workspace.validate()
+            let updated = workspaces + [workspace]
+            try FeatureSettings.save(updated, name: "workspaces")
+            workspaces = updated
+        } catch { message = "Couldn’t save workspace: \(error.localizedDescription)" }
+    }
+
+    func deleteWorkspace(_ id: UUID) {
+        do {
+            let updated = workspaces.filter { $0.id != id }
+            try FeatureSettings.save(updated, name: "workspaces"); workspaces = updated
+        } catch { message = "Couldn’t delete workspace: \(error.localizedDescription)" }
+    }
+
+    func restoreWorkspace(_ id: UUID) {
+        guard trusted, enabled, !restoringWorkspace, let saved = workspaces.first(where: { $0.id == id }) else { return }
+        captureUndo()
+        restoringWorkspace = true; workspaceRestoreID = id
+        pending?.cancel(); pending = nil
+        resetPlacement()
+        var launchFailures = Set<String>()
+        for bundle in Set(saved.windows.map(\.bundle)) where NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty {
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { launchFailures.insert(bundle); continue }
+            let config = NSWorkspace.OpenConfiguration(); config.activates = false; config.addsToRecentItems = false
+            NSWorkspace.shared.openApplication(at: url, configuration: config) { [weak self] _, error in
+                if let error { DispatchQueue.main.async { self?.message = "Couldn’t open \(bundle): \(error.localizedDescription)" } }
+            }
+        }
+        finishRestore(saved, attempts: 12, unavailable: launchFailures)
+    }
+
+    private func finishRestore(_ saved: Workspace, attempts: Int, unavailable: Set<String>) {
+        guard workspaceRestoreID == saved.id else { return }
+        guard trusted, enabled else { restoringWorkspace = false; workspaceRestoreID = nil; return }
+        refresh()
+        let screens = workspaceDisplays
+        var targets: [(AXUIElement, CGRect)] = []
+        var floats: [AXUIElement] = []
+        var missing = 0
+        for pane in saved.windows {
+            let candidates = windows.filter { NSRunningApplication(processIdentifier: $0.pid)?.bundleIdentifier == pane.bundle }
+            guard candidates.indices.contains(pane.ordinal), let frame = Workspace.restored(pane, screens: screens) else {
+                if !unavailable.contains(pane.bundle) { missing += 1 }; continue
+            }
+            let element = candidates[pane.ordinal].element
+            targets.append((element, frame)); if pane.floating { floats.append(element) }
+        }
+        if missing > 0, attempts > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.finishRestore(saved, attempts: attempts - 1, unavailable: unavailable)
+            }
+            return
+        }
+        restoringWorkspace = false; workspaceRestoreID = nil
+        // shortcut: match same-app windows by ordinal; add document identity only with explicit privacy controls.
+        floating = floats; manualFrames = targets
+        assignDisplays(targets)
+        tile()
+        // Explicitly floating panes bypass tiling, but still return to their saved positions.
+        move(targets.filter { target in floats.contains { CFEqual($0, target.0) } }, animated: false)
+        floatingCount = windows.filter { isFloating($0.element) }.count
+        if missing > 0 || !unavailable.isEmpty {
+            message = "Restored available windows. \(missing) saved windows are not open on this desktop; \(unavailable.count) apps are unavailable. Open missing windows here, then restore again."
+        }
+    }
+
+    func exportDiagnostics() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "compo-diagnostics.json"
+        panel.allowedContentTypes = [.json]
+        panel.title = "Export Diagnostics"
+        panel.message = "Includes app bundle IDs, window geometry and event timing. No window titles, document paths, content or screenshots."
+        panel.begin { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            do {
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let report = DiagnosticReport(version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+                    os: ProcessInfo.processInfo.operatingSystemVersionString, trusted: self.trusted, enabled: self.enabled,
+                    gap: self.gap, displays: self.displays,
+                    windows: self.windows.enumerated().map { index, window in
+                        DiagnosticReport.Window(index: index, bundle: NSRunningApplication(processIdentifier: window.pid)?.bundleIdentifier,
+                            frame: AX.frame(window.element) ?? window.frame, floating: self.isFloating(window.element),
+                            requested: self.requestedFrames.first { CFEqual($0.0, window.element) }?.1,
+                            minimum: self.sizeLimits.first { CFEqual($0.0, window.element) }?.1)
+                    }, events: self.diagnosticLog.entries)
+                try encoder.encode(report).write(to: url, options: .atomic)
+            } catch { self.message = "Couldn’t export diagnostics: \(error.localizedDescription)" }
+        }
+    }
+}
+
+private struct DiagnosticReport: Encodable {
+    let version: String
+    let os: String
+    let trusted: Bool
+    let enabled: Bool
+    let gap: Double
+    let displays: [CGRect]
+    struct Window: Encodable {
+        let index: Int
+        let bundle: String?
+        let frame: CGRect
+        let floating: Bool
+        let requested: CGRect?
+        let minimum: CGSize?
+    }
+    let windows: [Window]
+    let events: [DiagnosticLog.Entry]
 }

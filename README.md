@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** Version 0.2.6 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** Version 0.3.0 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -55,14 +55,31 @@ Shortcuts use **Control + Option**; desktop switching adds **Command**. Close th
 | `⌃⌥ Return` | Zoom the focused window |
 | `⌃⌥ P` | Pause or resume |
 | `⌃⌥ R` | Clear manual placements and retile |
+| `⌃⌥ Z` | Undo the last arrangement |
 
-Shortcuts are fixed for now. They may conflict with VoiceOver or other apps. Floating and zoom are session-only; layout preferences persist.
+Choose **Edit Shortcuts…** to edit `~/Library/Application Support/compo/shortcuts.json`, then **Reload Shortcuts**. Each entry has `action`, `key`, `modifiers` and `enabled`. Keep all action entries; set `enabled` to `false` to disable one. Keys: lowercase A–Z, 0–9, `left`, `right`, `up`, `down`, `space`, `return`, `escape`. Modifiers: `control`, `option`, `command`, `shift`; enabled shortcuts require Control, Option or Command. Duplicate chords, invalid JSON and shortcuts reserved by other apps show an error and keep the previous working bindings. Physical letter-key positions follow US key codes. Floating and zoom are session-only unless saved in a workspace.
+
+```json
+{ "action": "desktop.right", "key": "right", "modifiers": ["control", "option", "command"], "enabled": true }
+```
+
+The file contains an array of these entries; Edit Shortcuts creates the complete defaults. File limit: 2 MB.
 
 ### Instant desktop switching
 
 On macOS 26.6 and later, `⌃⌥⌘ ← / →` switches adjacent Spaces on the display under the pointer without the sliding transition. It works while tiling is paused, requires Accessibility access, includes fullscreen Spaces, and stops at the first or last Space. Each desktop shortcut acts once per press: holding the arrow does not repeat. Release it before pressing again. Keep Control, Option, and Command held while tapping either arrow successively. Rapid taps queue in order while Dock commits each switch; they are not discarded.
 
 This changes no system-wide Reduce Motion settings. Native trackpad swipes, native Control–Left/Right shortcuts, and other macOS animations keep their existing behavior. Instant cuts use an undocumented Dock gesture protocol; future macOS updates may require compatibility fixes. On older macOS, use native desktop shortcuts.
+
+### Undo, workspaces and diagnostics
+
+**Undo** (`⌃⌥ Z`) restores one previous arrangement after a snap, swap, float, zoom, layout change, retile or workspace restore. It restores surviving windows on the current desktop only; changing desktops clears undo. App size limits still apply.
+
+**Saved Workspaces** records app bundle IDs, display identities and relative pane geometry, including floating panes. Save with a name, choose it, then Restore. Missing apps launch without activation; restoration waits up to six seconds for their windows. Open documents yourself first. Windows within the same app match by visible order, not document title. Missing displays fall back to an available display; tiling refits against known size limits. Extra visible windows remain managed. Save/delete writes atomically to `~/Library/Application Support/compo/workspaces.json` (32 workspaces, 128 panes each). A failed load preserves the existing file.
+
+**Export Diagnostics…** saves a local JSON file containing app/OS versions, display and window geometry, bundle IDs, learned minimums, requested frames and up to 200 recent events with uptime. It includes no window titles, document paths, content or screenshots, and uploads nothing. Review the file before sharing.
+
+**Show Desktop Indicator** briefly displays the confirmed desktop number after Space changes. It takes no keyboard focus and adds no transition animation. Disable it in controls if preferred.
 
 ### App rules
 
@@ -81,6 +98,8 @@ Choose **Edit App Rules**, edit the file, then **Reload App Rules**. Invalid JSO
 Rules live at `~/Library/Application Support/compo/config.json`. Use exact bundle identifiers. Allowed roles: `browser`, `terminal`, `document`, `other`. File limit: 256 KB.
 
 ## Native, with boundaries
+
+**0.3.0:** adds one-step arrangement undo, saved workspaces, editable shortcuts with duplicate/system conflict checks, local diagnostic export and an optional desktop indicator. Settled overlapping windows receive one recovery attempt per arrangement. Persistent refusal stops placement attempts and shows guidance; impossible minimum-size layouts report why they cannot fit. Instant desktop switching remains unchanged.
 
 **0.2.6:** desktop shortcuts accept one action per press and rearm on release. Holding an arrow no longer repeats through every desktop. Keep modifiers held and tap either arrow repeatedly or alternate directions; quick taps queue in order instead of being discarded during Dock’s commit interval. Window focus and swap shortcuts retain their existing repeat behavior.
 
