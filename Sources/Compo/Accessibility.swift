@@ -34,6 +34,19 @@ enum AX {
     }
 
     static func setFrame(_ window: AXUIElement, _ frame: CGRect) -> Bool {
+        // Busy Chromium windows need more time for writes than discovery reads.
+        AXUIElementSetMessagingTimeout(window, 0.5)
+        defer { AXUIElementSetMessagingTimeout(window, 0.15) }
+        var pid: pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.15)
+        let chrome = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier?.hasPrefix("com.google.Chrome") == true
+        return WindowPlacement.adjustEnhancedUI(
+            enabled: chrome && value(app, "AXEnhancedUserInterface") as? Bool == true,
+            assistiveTechnology: NSWorkspace.shared.isVoiceOverEnabled || NSWorkspace.shared.isSwitchControlEnabled,
+            write: { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, $0 ? kCFBooleanTrue : kCFBooleanFalse) == .success }
+        ) {
         WindowPlacement.apply(frame, read: { self.frame(window) }, resize: { size in
             var size = size
             guard let value = AXValueCreate(.cgSize, &size) else { return false }
@@ -43,6 +56,7 @@ enum AX {
             guard let value = AXValueCreate(.cgPoint, &point) else { return false }
             return AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, value) == .success
         })
+        }
     }
 
     static func focusedWindow() -> AXUIElement? {

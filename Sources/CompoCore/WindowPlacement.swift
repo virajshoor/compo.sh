@@ -25,7 +25,7 @@ public enum WindowPlacement {
         if needsResize { resizeSucceeded = resize(target.size) }
         guard let resized = read(), isValid(resized) else { return false }
         if abs(resized.minX - target.minX) > 2 || abs(resized.minY - target.minY) > 2 {
-            succeeded = move(target.origin) && succeeded
+            succeeded = move(target.origin)
         }
         guard let moved = read(), isValid(moved) else { return false }
         // A display crossing can change size limits. Do not repeatedly request a rejected minimum size.
@@ -34,9 +34,17 @@ public enum WindowPlacement {
         }
         guard let final = read(), isValid(final) else { return false }
         if abs(final.minX - target.minX) > 2 || abs(final.minY - target.minY) > 2 {
-            succeeded = move(target.origin) && succeeded
+            succeeded = move(target.origin)
         }
-        return succeeded && resizeSucceeded
+        return (succeeded && resizeSucceeded) || read().map { matches($0, target) } == true
+    }
+
+    /// Restore the app's accessibility mode even when placement fails.
+    public static func adjustEnhancedUI<T>(enabled: Bool, assistiveTechnology: Bool,
+                                           write: (Bool) -> Bool, adjustment: () -> T) -> T {
+        let changed = enabled && !assistiveTechnology && write(false)
+        defer { if changed { _ = write(true) } }
+        return adjustment()
     }
 
     public static func minimumSize(requested: CGRect, actual: CGRect, previous: CGSize = .zero) -> CGSize {

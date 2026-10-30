@@ -18,7 +18,7 @@ Your browser needs room to breathe. Your terminal likes to stand tall. compo.sh 
 
 Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No account, telemetry, screen recording, or SIP changes.
 
-> **Public beta.** Version 0.3.1 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
+> **Public beta.** Version 0.3.2 is Developer ID signed and Apple notarized, with the notarization ticket stapled to the app. Fresh installs start paused. Enable Automatic Tiling when you are ready.
 
 ## Made for the way you work
 
@@ -28,6 +28,11 @@ Native Swift, AppKit, and SwiftUI. No third-party runtime dependencies. No accou
 | **Layouts that fit.** Narrow companion columns become a balanced grid. Wider displays keep tall companion panes when space allows. | **Per-app rules.** Override app roles or keep an app floating with a small JSON file. |
 | **Preview, then place.** Drag to edges or corners for a foreground snap preview. Drag over another managed window to swap. | **Keyboard control.** Focus, swap, float, zoom, pause, and retile without reaching for the mouse. |
 | **Quiet by design.** Window events drive tiling. Window placement is instant by default, with visible drag previews. Bounded discovery retries after launch or activation; no idle window polling. | **Silent startup.** Optional launch at login starts in the menu bar. Preferences survive updates with the same app identity. |
+
+## Fixed in 0.3.2
+
+- Busy Chrome frame writes get a bounded 500 ms timeout; discovery keeps its short timeout. A final frame check recognizes writes that applied despite an error reply.
+- Chrome's enhanced accessibility mode is temporarily disabled during frame placement and restored afterward, unless VoiceOver or Switch Control is enabled. This addresses a known window-manager interaction; live Chrome behavior still needs user verification.
 
 ## Fixed in 0.3.1
 
@@ -174,7 +179,7 @@ swiftc Sources/Compo/LaunchBehavior.swift Tests/LaunchBehaviorCheck.swift -o /tm
 /tmp/compo-launch-check
 ```
 
-58 Swift tests cover arrangement snapshots, workspace validation and display remapping, shortcut validation, bounded diagnostics, settled overlap recovery, layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, slow launch retry bounds, simulated activation recovery, unrelated restoration during content drags, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, gesture encoding, shortcut hold/release behavior, rapid alternating desktop taps, and delayed queue dispatch. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
+60 Swift tests cover arrangement snapshots, workspace validation and display remapping, shortcut validation, bounded diagnostics, settled overlap recovery, layouts, app hierarchy, narrow and ultrawide displays, gaps, non-overlap, directional focus, snap zones, click-versus-drag placement intent, minimum-size fitting, shifted origins, refused writes, discovery races, slow launch retry bounds, simulated activation recovery, unrelated restoration during content drags, six-window uneven fitting, stale or unsettled resize feedback, rejected resize recovery, cross-Space window identities, desktop boundaries, gesture encoding, shortcut hold/release behavior, rapid alternating desktop taps, and delayed queue dispatch. Desktop gesture tests construct events without posting them. The launch check covers four synthetic launch events. They do not move real desktop windows; app compatibility and actual login behavior need hands-on testing.
 
 ### Around the source
 

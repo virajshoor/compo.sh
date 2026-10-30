@@ -4,6 +4,31 @@ import XCTest
 final class WindowPlacementTests: XCTestCase {
     private let target = CGRect(x: 800, y: 40, width: 600, height: 800)
 
+    func testEnhancedUIRestoredAfterFailedPlacement() {
+        var writes: [Bool] = []
+        let result = WindowPlacement.adjustEnhancedUI(enabled: true, assistiveTechnology: false,
+            write: { writes.append($0); return true }, adjustment: { false })
+        XCTAssertFalse(result)
+        XCTAssertEqual(writes, [false, true])
+        for (enabled, assistive) in [(false, false), (true, true)] {
+            writes = []
+            WindowPlacement.adjustEnhancedUI(enabled: enabled, assistiveTechnology: assistive,
+                write: { writes.append($0); return true }, adjustment: {})
+            XCTAssertTrue(writes.isEmpty)
+        }
+        writes = []
+        WindowPlacement.adjustEnhancedUI(enabled: true, assistiveTechnology: false,
+            write: { writes.append($0); return false }, adjustment: {})
+        XCTAssertEqual(writes, [false])
+    }
+
+    func testTimedOutWriteThatAppliedIsConfirmed() {
+        var actual = CGRect(x: 0, y: 40, width: 1100, height: 900)
+        XCTAssertTrue(WindowPlacement.apply(target, read: { actual },
+            resize: { actual.size = $0; return false }, move: { actual.origin = $0; return false }))
+        XCTAssertEqual(actual, target)
+    }
+
     func testUnchangedFrameDoesNotWriteOrRestartAppLayout() {
         var writes = 0
         XCTAssertTrue(WindowPlacement.apply(target, read: { self.target.offsetBy(dx: 0.5, dy: 0) },
